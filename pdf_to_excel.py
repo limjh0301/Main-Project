@@ -4,15 +4,19 @@ PDF to Excel Converter for Vehicle Operation Logs (공용차량 운행일지)
 
 Extracts tables from PDF files and converts them to Excel (.xlsx) format.
 Supports two extraction engines: pdfplumber (default) and tabula.
+Supports both new (2025-2026 table) and old (2023-2024 form) PDF formats.
 
 Usage:
     python3 pdf_to_excel.py input.pdf
     python3 pdf_to_excel.py input.pdf -o output.xlsx
     python3 pdf_to_excel.py input.pdf --engine tabula
-    python3 pdf_to_excel.py ./pdf_folder/          # batch convert all PDFs in folder
+    python3 pdf_to_excel.py input.pdf --format old           # 2023-2024 양식
+    python3 pdf_to_excel.py ./pdf_folder/                    # batch convert all PDFs
+    python3 pdf_to_excel.py ./pdf_folder/ --format old       # batch convert old format
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +24,251 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+# Standard column names for the unified output
+STANDARD_COLUMNS = [
+    "날짜",          # Date
+    "차량번호",      # Vehicle No.
+    "운전자",        # Driver
+    "소속",          # Department
+    "사용목적",      # Purpose
+    "행선지",        # Destination
+    "출발시간",      # Depart Time
+    "도착시간",      # Return Time
+    "출발(km)",      # Start KM
+    "도착(km)",      # End KM
+    "주행거리(km)",  # Distance
+    "수령량(ℓ)",     # Fuel (L)
+    "동승자",        # Passenger
+    "비고",          # Notes
+]
+
+
+def detect_format(pdf_path: str) -> str:
+    """Auto-detect PDF format: 'old' (2023-2024 form) or 'new' (2025-2026 table)."""
+    import pdfplumber
+
+    with pdfplumber.open(pdf_path) as pdf:
+        if not pdf.pages:
+            return "new"
+        text = pdf.pages[0].extract_text() or ""
+        flat = text.replace(" ", "")
+        # Korean markers
+        old_markers_kr = ["차량운행일지", "계기표시", "전일누계", "금일주행", "관리운전원"]
+        # English markers (for testing / bilingual PDFs)
+        old_markers_en = ["PrevTotal", "TodayDrive", "CurrTotal", "Odometer", "VehicleLog"]
+        kr_matches = sum(1 for m in old_markers_kr if m in flat)
+        en_matches = sum(1 for m in old_markers_en if m in flat)
+        if kr_matches >= 2 or en_matches >= 2:
+            return "old"
+    return "new"
+
+
+def parse_old_format(pdf_path: str) -> pd.DataFrame:
+    """Parse old (2023-2024) form-style vehicle operation log PDFs.
+
+    Each page is one day's record with a fixed form layout.
+    Extracts fields from structured tables on each page.
+    """
+    import pdfplumber
+
+    records = []
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, 1):
+            text = page.extract_text() or ""
+            tables = page.extract_tables() or []
+
+            if not text.strip():
+                continue
+
+            page_records = _parse_old_format_page(text, tables)
+            if page_records:
+                records.extend(page_records)
+
+    if not records:
+        return pd.DataFrame(columns=STANDARD_COLUMNS)
+
+    return pd.DataFrame(records)
+
+
+def _parse_old_format_page(text: str, tables: list) -> list[dict]:
+    """Parse a single page of old-format PDF into record(s)."""
+
+    # --- Extract date (Korean: 2023년 1월 3일 / English: 2023year 1month 3day) ---
+    date_str = ""
+    dm = re.search(r"(\d{4})\s*(?:년|year)\s*(\d{1,2})\s*(?:월|month)\s*(\d{1,2})\s*(?:일|day)", text)
+    if dm:
+        date_str = f"{dm.group(1)}-{int(dm.group(2)):02d}-{int(dm.group(3)):02d}"
+
+    # --- Extract vehicle number ---
+    vehicle_no = ""
+    vm = re.search(r"(?:차량번호|Vehicle\s*No\.?)\s*(\S+)", text)
+    if vm:
+        vehicle_no = vm.group(1)
+
+    # --- Extract purpose ---
+    purpose = ""
+    pm = re.search(r"(?:사용목적|Purpose)\s+(.+)", text)
+    if pm:
+        purpose = pm.group(1).strip()
+
+    # --- Extract mileage from summary table ---
+    prev_total_km = ""
+    today_km = ""
+    curr_total_km = ""
+    fuel = ""
+
+    for table in tables:
+        for row in table:
+            if not row:
+                continue
+            row_str = " ".join(str(c) for c in row if c)
+            # Previous total
+            m = re.search(r"(?:전일누계|Prev\s*Total)\s*(\d[\d,]*)\s*km", row_str, re.I)
+            if m:
+                prev_total_km = m.group(1).replace(",", "")
+            # Today's distance
+            m = re.search(r"(?:금일주행|Today\s*Drive)\s*(\d[\d,]*)\s*km", row_str, re.I)
+            if m:
+                today_km = m.group(1).replace(",", "")
+            # Current total
+            m = re.search(r"(?:금일누계|Curr\s*Total)\s*(\d[\d,]*)\s*km", row_str, re.I)
+            if m:
+                curr_total_km = m.group(1).replace(",", "")
+            # Fuel
+            m = re.search(r"(?:수령량|Qty)\s*(\d[\d.]*)\s*[ℓlL]", row_str)
+            if m:
+                fuel = m.group(1)
+
+    # --- Extract trips from the main trip table ---
+    trips = []
+    for table in tables:
+        for row in table:
+            if not row or len(row) < 3:
+                continue
+            cells = [str(c).strip() if c else "" for c in row]
+            row_joined = " ".join(cells)
+
+            # Detect time patterns: 출:HH:MM / Dep:HH:MM / 착:HH:MM / Arr:HH:MM
+            dep_match = re.search(
+                r"(?:출|Dep)\s*[:\uff1a]\s*(\d{1,2}[:\uff1a]\d{2})", row_joined
+            )
+            if not dep_match:
+                continue
+
+            # Skip rows with only empty times (e.g., "Dep:\nArr:")
+            if not dep_match.group(1):
+                continue
+
+            trip = {"depart_time": dep_match.group(1).replace("\uff1a", ":")}
+
+            arr_match = re.search(
+                r"(?:착|Arr)\s*[:\uff1a]\s*(\d{1,2}[:\uff1a]\d{2})", row_joined
+            )
+            if arr_match:
+                trip["arrive_time"] = arr_match.group(1).replace("\uff1a", ":")
+
+            # Odometer: 4-6 digit numbers (excluding time digits)
+            # Look in specific cells (typically columns 2 and 3 in 8-col table)
+            odometer_nums = []
+            for cell in cells:
+                cell_clean = re.sub(r"(?:출|착|Dep|Arr)\s*[:\uff1a]\s*\d{1,2}[:\uff1a]\d{2}", "", cell)
+                nums = re.findall(r"\b(\d{4,6})\b", cell_clean)
+                odometer_nums.extend(nums)
+            if len(odometer_nums) >= 2:
+                trip["start_km"] = odometer_nums[0]
+                trip["end_km"] = odometer_nums[1]
+
+            # Destination (first cell usually, or cell with meaningful text)
+            if cells[0] and cells[0] not in ("", "None"):
+                dest = cells[0].replace("\n", " ").strip()
+                if dest and not re.search(r"(?:출|착|Dep|Arr)[:\uff1a]", dest):
+                    trip["destination"] = dest
+
+            # For 8-column tables: [dest, time, start_km, end_km, dept, name, pass_dept, pass_name]
+            # For other layouts, fall back to heuristic matching
+            if len(cells) >= 8:
+                dept_cell = cells[4].strip() if cells[4] else ""
+                name_cell = cells[5].strip() if cells[5] else ""
+                if name_cell and name_cell not in ("None", "", "Name"):
+                    trip["driver"] = name_cell
+                if dept_cell and dept_cell not in ("None", "", "Dept"):
+                    trip["department"] = dept_cell
+                # Passenger
+                pass_name = cells[7].strip() if cells[7] else ""
+                if pass_name and pass_name not in ("None", "", "Name"):
+                    trip["passenger"] = pass_name
+            else:
+                # Heuristic: Korean name (2-4 chars)
+                for cell in cells[4:]:
+                    if cell and re.fullmatch(r"[가-힣]{2,4}", cell):
+                        trip["driver"] = cell
+                        break
+                for cell in cells[4:]:
+                    if cell and any(kw in cell for kw in ["팀", "부", "실"]):
+                        trip["department"] = cell
+                        break
+
+            trips.append(trip)
+
+    # --- Build records ---
+    if not trips:
+        # No trips found; create one record from page-level data
+        if not date_str and not vehicle_no:
+            return []
+        distance = today_km
+        if not distance and prev_total_km and curr_total_km:
+            try:
+                distance = str(int(curr_total_km) - int(prev_total_km))
+            except ValueError:
+                pass
+        return [{
+            "날짜": date_str, "차량번호": vehicle_no,
+            "운전자": "", "소속": "", "사용목적": purpose, "행선지": "",
+            "출발시간": "", "도착시간": "",
+            "출발(km)": prev_total_km, "도착(km)": curr_total_km,
+            "주행거리(km)": distance, "수령량(ℓ)": fuel,
+            "동승자": "", "비고": "",
+        }]
+
+    records = []
+    for i, trip in enumerate(trips):
+        start_km = trip.get("start_km", "")
+        end_km = trip.get("end_km", "")
+        distance = ""
+
+        if not start_km and i == 0 and prev_total_km:
+            start_km = prev_total_km
+        if not end_km and i == len(trips) - 1 and curr_total_km:
+            end_km = curr_total_km
+
+        if start_km and end_km:
+            try:
+                distance = str(int(end_km.replace(",", "")) - int(start_km.replace(",", "")))
+            except ValueError:
+                pass
+        if not distance:
+            distance = today_km if i == 0 else ""
+
+        records.append({
+            "날짜": date_str,
+            "차량번호": vehicle_no,
+            "운전자": trip.get("driver", ""),
+            "소속": trip.get("department", ""),
+            "사용목적": purpose,
+            "행선지": trip.get("destination", ""),
+            "출발시간": trip.get("depart_time", ""),
+            "도착시간": trip.get("arrive_time", ""),
+            "출발(km)": start_km,
+            "도착(km)": end_km,
+            "주행거리(km)": distance,
+            "수령량(ℓ)": fuel if i == 0 else "",
+            "동승자": "",
+            "비고": "",
+        })
+
+    return records
 
 
 def extract_tables_pdfplumber(pdf_path: str) -> list[pd.DataFrame]:
@@ -191,6 +440,7 @@ def convert_pdf_to_excel(
     engine: str = "pdfplumber",
     sheet_name: str = "운행일지",
     merge: bool = True,
+    pdf_format: str = "auto",
 ) -> str:
     """Convert a PDF file to Excel.
 
@@ -200,6 +450,7 @@ def convert_pdf_to_excel(
         engine: Extraction engine to use ('pdfplumber' or 'tabula').
         sheet_name: Name for the Excel sheet.
         merge: If True, merge all tables into one sheet. If False, each table gets its own sheet.
+        pdf_format: 'auto', 'old' (2023-2024 form), or 'new' (2025-2026 table).
 
     Returns:
         Path to the generated Excel file.
@@ -212,10 +463,29 @@ def convert_pdf_to_excel(
     if output_path is None:
         output_path = str(Path(pdf_path).with_suffix(".xlsx"))
 
-    print(f"  Engine: {engine}")
+    # Auto-detect format
+    if pdf_format == "auto":
+        pdf_format = detect_format(pdf_path)
+
+    print(f"  Format: {pdf_format} ({'2023-2024 양식' if pdf_format == 'old' else '2025-2026 양식'})")
     print(f"  Input:  {pdf_path}")
 
-    # Extract tables
+    # --- Old format: form-style parsing ---
+    if pdf_format == "old":
+        df = parse_old_format(pdf_path)
+        if df.empty:
+            print("  Warning: No records found in PDF.")
+            pd.DataFrame(columns=STANDARD_COLUMNS).to_excel(output_path, index=False)
+            return output_path
+        print(f"  Found {len(df)} record(s)")
+        df.to_excel(output_path, index=False, sheet_name=sheet_name)
+        style_excel(output_path)
+        print(f"  Output: {output_path}")
+        return output_path
+
+    # --- New format: table extraction ---
+    print(f"  Engine: {engine}")
+
     if engine == "pdfplumber":
         tables = extract_tables_pdfplumber(pdf_path)
     elif engine == "tabula":
@@ -238,11 +508,9 @@ def convert_pdf_to_excel(
             for i, table in enumerate(tables):
                 promoted = promote_header(table)
                 name = f"{sheet_name}_{i + 1}" if len(tables) > 1 else sheet_name
-                promoted.to_excel(writer, index=False, sheet_name=name[:31])  # sheet name max 31 chars
+                promoted.to_excel(writer, index=False, sheet_name=name[:31])
 
-    # Apply styling
     style_excel(output_path)
-
     print(f"  Output: {output_path}")
     return output_path
 
@@ -309,6 +577,12 @@ Examples:
         action="store_true",
         help="Don't merge tables; put each table in a separate sheet",
     )
+    parser.add_argument(
+        "--format",
+        choices=["auto", "old", "new"],
+        default="auto",
+        help="PDF format: 'auto' (auto-detect), 'old' (2023-2024 양식), 'new' (2025-2026 양식). Default: auto",
+    )
 
     args = parser.parse_args()
     input_path = Path(args.input)
@@ -326,6 +600,7 @@ Examples:
         "engine": args.engine,
         "sheet_name": args.sheet_name,
         "merge": not args.no_merge,
+        "pdf_format": args.format,
     }
 
     if input_path.is_dir():
