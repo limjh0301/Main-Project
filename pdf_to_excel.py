@@ -4,6 +4,7 @@ PDF to Excel Converter for Vehicle Operation Logs (공용차량 운행일지)
 
 Supports:
 - Old format (2023-2024): form-style, including 2-up (모아찍기) pages
+- Scanned/image PDFs: OCR via Tesseract
 - New format (2025-2026): table-style
 
 Usage:
@@ -11,6 +12,10 @@ Usage:
     python3 pdf_to_excel.py input.pdf -o output.xlsx
     python3 pdf_to_excel.py input.pdf --format old
     python3 pdf_to_excel.py ./pdf_folder/
+
+OCR Requirements (for scanned PDFs):
+    pip install pytesseract pdf2image
+    + Tesseract-OCR installed (https://github.com/UB-Mannheim/tesseract/wiki)
 """
 
 import argparse
@@ -38,6 +43,77 @@ STANDARD_COLUMNS = [
     "금일주행(km)",
     "금일누계(km)",
 ]
+
+
+# =============================================================================
+# OCR support for scanned PDFs
+# =============================================================================
+
+def is_scanned_pdf(pdf_path: str) -> bool:
+    """Check if PDF is image-based (scanned) by testing first page for text."""
+    import pdfplumber
+
+    with pdfplumber.open(pdf_path) as pdf:
+        if not pdf.pages:
+            return False
+        page = pdf.pages[0]
+        text = page.extract_text() or ""
+        return len(text.strip()) < 10 and len(page.chars) == 0
+
+
+def ocr_pdf_to_texts(pdf_path: str) -> list[str]:
+    """Convert scanned PDF pages to text using OCR.
+
+    Returns list of text strings, one per page.
+    Supports 2-up pages by splitting images in half.
+    """
+    from pdf2image import convert_from_path
+    import pytesseract
+
+    print("  OCR 처리 중... (시간이 걸릴 수 있습니다)")
+
+    try:
+        images = convert_from_path(pdf_path, dpi=300)
+    except Exception as e:
+        print(f"  오류: PDF 이미지 변환 실패 - {e}")
+        print("  poppler가 설치되어 있는지 확인하세요.")
+        print("  Windows: https://github.com/oschwartz10612/poppler-windows/releases")
+        return []
+
+    texts = []
+    for i, img in enumerate(images):
+        # Check if 2-up by looking at aspect ratio (landscape = likely 2-up)
+        w, h = img.size
+        if w > h * 1.3:  # landscape, likely 2-up
+            mid = w // 2
+            left_img = img.crop((0, 0, mid, h))
+            right_img = img.crop((mid, 0, w, h))
+            for sub_img in [left_img, right_img]:
+                text = pytesseract.image_to_string(sub_img, lang="kor+eng")
+                if text.strip():
+                    texts.append(text)
+        else:
+            text = pytesseract.image_to_string(img, lang="kor+eng")
+            if text.strip():
+                texts.append(text)
+
+        if (i + 1) % 10 == 0:
+            print(f"    {i + 1}/{len(images)} 페이지 완료...")
+
+    print(f"  OCR 완료: {len(texts)}개 텍스트 추출")
+    return texts
+
+
+def parse_ocr_texts(texts: list[str]) -> pd.DataFrame:
+    """Parse OCR-extracted texts into records using the same form parser."""
+    records = []
+    for text in texts:
+        page_records = _parse_form(text, [])  # No tables from OCR, text-only
+        records.extend(page_records)
+
+    if not records:
+        return pd.DataFrame(columns=STANDARD_COLUMNS)
+    return pd.DataFrame(records)
 
 
 # =============================================================================
@@ -438,6 +514,28 @@ def convert_pdf_to_excel(
     if output_path is None:
         output_path = str(Path(pdf_path).with_suffix(".xlsx"))
 
+    # --- Check if scanned PDF (needs OCR) ---
+    scanned = is_scanned_pdf(pdf_path)
+    if scanned:
+        print(f"  유형: 스캔(이미지) PDF → OCR 사용")
+        print(f"  입력: {pdf_path}")
+        texts = ocr_pdf_to_texts(pdf_path)
+        if not texts:
+            print("  경고: OCR로 텍스트를 추출하지 못했습니다.")
+            pd.DataFrame(columns=STANDARD_COLUMNS).to_excel(output_path, index=False)
+            return output_path
+        df = parse_ocr_texts(texts)
+        if df.empty:
+            print("  경고: OCR 텍스트에서 데이터를 파싱하지 못했습니다.")
+            pd.DataFrame(columns=STANDARD_COLUMNS).to_excel(output_path, index=False)
+            return output_path
+        print(f"  추출: {len(df)}건")
+        df.to_excel(output_path, index=False, sheet_name=sheet_name)
+        style_excel(output_path)
+        print(f"  출력: {output_path}")
+        return output_path
+
+    # --- Normal (text-based) PDF ---
     if pdf_format == "auto":
         pdf_format = detect_format(pdf_path)
 
