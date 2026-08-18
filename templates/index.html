@@ -4,42 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>국회 요구자료 목록화 시스템</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <main class="container">
-    <header class="header">
-      <div class="logo">🏛️ + 📄</div>
-      <h1>국회 요구자료 목록화 시스템</h1>
-      <p class="subtitle">요구서 PDF를 업로드하면 텍스트를 자동 추출해 엑셀 관리대장으로 정리합니다.</p>
+    <header class="hero">
+      <span class="hero-badge">🏛️ 의정자료전자유통시스템 요구서 — PDF 자동 목록화</span>
+      <h1 class="hero-title">
+        쌓여가는 요구서 PDF,<br>
+        <span class="accent">엑셀 대장으로 정리하다</span>
+      </h1>
+      <p class="hero-sub">
+        <strong>국회 요구자료 목록화 시스템</strong>은 요구서 PDF를 올리면 텍스트를 자동 추출(OCR 포함)해,<br class="wide-only">
+        문서번호·의원명·요구자료 목록을 <strong>엑셀 관리대장</strong>으로 한 번에 정리합니다.
+      </p>
+      <span class="hero-note">업로드 파일은 서버에 저장되지 않으며, 관리대장은 로컬 PC에서 관리됩니다</span>
     </header>
 
     <form id="process-form">
       <section class="card">
-        <label class="radio-row">
-          <input type="radio" name="mode" value="existing" checked>
-          기존 엑셀 파일 사용
-          <span class="hint" title="이전에 이 시스템으로 만든 관리대장에 접수 내역을 이어서 추가합니다.">ⓘ</span>
-        </label>
-        <label class="radio-row">
-          <input type="radio" name="mode" value="new">
-          새 관리대장 생성
-          <span class="hint" title="새 엑셀 관리대장을 만들어 접수 내역을 기록합니다.">ⓘ</span>
-        </label>
+        <div class="segmented" role="radiogroup" aria-label="관리대장 선택">
+          <label class="segment">
+            <input type="radio" name="mode" value="existing" checked>
+            <span>기존 엑셀 파일 사용</span>
+          </label>
+          <label class="segment">
+            <input type="radio" name="mode" value="new">
+            <span>새 관리대장 생성 <em class="new-badge">NEW</em></span>
+          </label>
+        </div>
 
         <div id="excel-section">
-          <p class="section-label">관리 중인 엑셀 파일 선택 (엑셀파일 1개만 선택):</p>
+          <p class="section-label">관리 중인 엑셀 파일 선택 <span class="muted">(엑셀파일 1개만 선택)</span></p>
           <div class="dropzone" id="excel-drop">
-            <span id="excel-drop-text">여기를 클릭하세요</span>
+            <span id="excel-drop-text">여기를 클릭하거나 엑셀 파일을 드래그하세요</span>
           </div>
           <input type="file" id="excel-input" accept=".xlsx,.xlsm" hidden>
         </div>
       </section>
 
       <section class="card">
-        <p class="section-label">요구서 PDF 파일 선택 (최대 5개 선택 가능) 또는 파일을 여기에 드래그하세요:</p>
-        <div class="dropzone" id="pdf-drop">
-          <span id="pdf-drop-text">PDF 파일을 여기에 드래그 하세요.<br>(클릭하여 선택할 수도 있습니다.)</span>
+        <p class="section-label">요구서 PDF 파일 선택 <span class="muted">(최대 5개)</span></p>
+        <div class="dropzone dropzone-lg" id="pdf-drop">
+          <span class="dz-icon">📄</span>
+          <span id="pdf-drop-text">PDF 파일을 여기에 드래그 하세요.<br><small>클릭하여 선택할 수도 있습니다.</small></span>
         </div>
         <input type="file" id="pdf-input" accept=".pdf" multiple hidden>
         <ul id="pdf-list" class="file-list"></ul>
@@ -67,7 +78,7 @@
     </section>
 
     <footer class="footer">
-      <p>업로드된 파일은 처리 후 서버에 저장되지 않으며, 관리대장은 로컬 PC에서 관리됩니다.</p>
+      <p>비식별정보처리방침 · 책임의 한계와 법적고지</p>
     </footer>
   </main>
   <script src="{{ url_for('static', filename='script.js') }}"></script>

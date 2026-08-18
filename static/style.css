@@ -1,81 +1,169 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  --violet: #6d5ce7;
+  --violet-strong: #5a48d6;
+  --violet-soft: #ede9ff;
+  --violet-text: #8b7cf6;
+  --ink: #1c1b2e;
+  --ink-sub: #5a5870;
+  --ink-faint: #9a98b0;
+  --bg: #f6f5fb;
+  --card: #ffffff;
+  --line: #e6e4f2;
+  --ok: #2f9e5f;
+}
+
 body {
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  background: #f4f7fa;
-  color: #222;
-  line-height: 1.6;
+  font-family: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background:
+    radial-gradient(60rem 30rem at 50% -8rem, #e9e4ff 0%, rgba(233, 228, 255, 0) 70%),
+    var(--bg);
+  color: var(--ink);
+  line-height: 1.65;
 }
 
 .container {
-  max-width: 680px;
+  max-width: 660px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 56px 16px 64px;
 }
 
-.header { text-align: center; margin-bottom: 24px; }
-.logo { font-size: 40px; margin-bottom: 8px; }
-.header h1 {
-  font-size: 24px;
-  color: #1a3e5c;
-  border-bottom: 2px solid #1f6fb2;
+/* ---------- 히어로 ---------- */
+.hero { text-align: center; margin-bottom: 36px; }
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--violet-strong);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 16px;
+  box-shadow: 0 2px 10px rgba(109, 92, 231, 0.08);
+  margin-bottom: 22px;
+}
+
+.hero-title {
+  font-size: clamp(32px, 6vw, 44px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: 18px;
+}
+.hero-title .accent {
+  background: linear-gradient(92deg, #7b6cf0 10%, #a78bfa 60%, #8ea2f5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-sub { font-size: 15px; color: var(--ink-sub); margin-bottom: 18px; }
+.hero-sub strong { color: var(--ink); }
+
+.hero-note {
   display: inline-block;
-  padding-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--violet-strong);
+  background: var(--violet-soft);
+  border-radius: 999px;
+  padding: 5px 14px;
 }
-.subtitle { margin-top: 10px; color: #667; font-size: 14px; }
 
+/* ---------- 카드 ---------- */
 .card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 6px 24px rgba(28, 27, 46, 0.05);
 }
 
-.radio-row, .check-row {
+/* ---------- 세그먼트 토글 ---------- */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: #f0eff8;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 6px;
+}
+.segment { position: relative; }
+.segment input { position: absolute; opacity: 0; pointer-events: none; }
+.segment span {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  cursor: pointer;
-}
-.hint { color: #888; cursor: help; }
-.warn { color: #b45309; font-size: 13px; }
-
-.section-label {
-  font-weight: bold;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
   font-size: 14px;
-  margin: 14px 0 8px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
+  font-weight: 500;
+  color: var(--ink-faint);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
-.card > .section-label:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.segment input:checked + span {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(28, 27, 46, 0.08);
+}
+.new-badge {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--violet);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* ---------- 섹션 라벨 & 드롭존 ---------- */
+.section-label {
+  font-weight: 700;
+  font-size: 14px;
+  margin: 16px 0 10px;
+}
+.card > .section-label:first-child { margin-top: 0; }
+.muted { color: var(--ink-faint); font-weight: 400; }
 
 .dropzone {
-  border: 2px dashed #c3cdd8;
-  border-radius: 8px;
-  background: #fafbfc;
-  padding: 28px 16px;
+  border: 1.5px dashed #cdc9e6;
+  border-radius: 14px;
+  background: #fbfaff;
+  padding: 26px 16px;
   text-align: center;
-  color: #99a;
+  color: var(--ink-faint);
+  font-size: 14px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
+.dropzone-lg { padding: 38px 16px; }
+.dz-icon { display: block; font-size: 28px; margin-bottom: 8px; }
+.dropzone small { color: var(--ink-faint); }
 .dropzone:hover, .dropzone.dragover {
-  border-color: #1f6fb2;
-  background: #eef5fb;
-  color: #1f6fb2;
+  border-color: var(--violet);
+  background: var(--violet-soft);
+  color: var(--violet-strong);
 }
-.dropzone.has-file { color: #1a7f37; border-color: #1a7f37; }
+.dropzone.has-file { color: var(--ok); border-color: var(--ok); background: #f2fbf6; }
 
-.file-list { list-style: none; margin-top: 10px; }
+.file-list { list-style: none; margin-top: 12px; }
 .file-list li {
-  font-size: 13px;
-  padding: 6px 10px;
-  background: #f0f6fc;
-  border-radius: 6px;
-  margin-bottom: 4px;
+  font-size: 13.5px;
+  padding: 9px 14px;
+  background: #f6f5fb;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 6px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -83,44 +171,65 @@ body {
 .file-list button {
   border: none;
   background: none;
-  color: #c00;
+  color: #c25;
   cursor: pointer;
   font-size: 14px;
 }
 
-.advanced { margin-bottom: 16px; padding: 0 4px; }
-.advanced summary { cursor: pointer; font-weight: bold; color: #445; }
-.advanced label { margin-top: 8px; }
+/* ---------- 고급 기능 ---------- */
+.advanced { margin: 4px 4px 18px; }
+.advanced summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-sub);
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.warn { color: #b45309; font-size: 13px; }
 
+/* ---------- 버튼 ---------- */
 .submit-btn {
   width: 100%;
-  padding: 14px;
+  padding: 15px;
   font-size: 16px;
-  font-weight: bold;
+  font-weight: 700;
+  font-family: inherit;
   color: #fff;
-  background: #3fae4f;
+  background: linear-gradient(120deg, var(--violet) 0%, var(--violet-strong) 100%);
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
+  box-shadow: 0 8px 22px rgba(109, 92, 231, 0.35);
+  transition: transform 0.1s, box-shadow 0.15s;
 }
-.submit-btn:hover { background: #35993f; }
-.submit-btn:disabled { background: #9cc; cursor: wait; }
+.submit-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(109, 92, 231, 0.45); }
+.submit-btn:disabled { background: #b9b2e8; box-shadow: none; cursor: wait; transform: none; }
 
+/* ---------- 상태 & 결과 ---------- */
 .status {
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
+  padding: 13px 18px;
+  border-radius: 12px;
+  margin: 16px 0;
   font-size: 14px;
 }
-.status.info { background: #e8f1fb; color: #1a4d7c; }
-.status.error { background: #fde8e8; color: #9b1c1c; }
+.status.info { background: var(--violet-soft); color: var(--violet-strong); }
+.status.error { background: #fdecec; color: #a12626; }
 
-.result h2 { font-size: 18px; color: #1a3e5c; margin-bottom: 10px; }
+.result { margin-top: 20px; }
+.result h2 { font-size: 18px; margin-bottom: 10px; }
+#result-summary { font-size: 14px; color: var(--ink-sub); margin-bottom: 12px; }
 
 .result-file {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
   margin-bottom: 10px;
   font-size: 13px;
 }
@@ -128,37 +237,45 @@ body {
 .result-file .badge {
   display: inline-block;
   font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: #e8f1fb;
-  color: #1a4d7c;
+  font-weight: 500;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--violet-soft);
+  color: var(--violet-strong);
   margin-left: 6px;
 }
 .result-file table { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .result-file th, .result-file td {
-  border: 1px solid #eee;
-  padding: 4px 8px;
+  border: 1px solid #efedf8;
+  padding: 5px 10px;
   text-align: left;
   vertical-align: top;
 }
-.result-file th { background: #f7fafc; white-space: nowrap; width: 90px; }
+.result-file th { background: #f8f7fd; white-space: nowrap; width: 90px; font-weight: 500; }
 
 .download-btn {
   display: block;
   text-align: center;
-  margin-top: 12px;
-  padding: 12px;
-  background: #1f6fb2;
+  margin-top: 14px;
+  padding: 13px;
+  background: var(--ink);
   color: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
   text-decoration: none;
-  font-weight: bold;
+  font-weight: 700;
+  transition: opacity 0.15s;
 }
-.download-btn:hover { background: #185a91; }
+.download-btn:hover { opacity: 0.88; }
 
+/* ---------- 푸터 ---------- */
 .footer {
   text-align: center;
-  color: #99a;
-  font-size: 12px;
-  margin-top: 24px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  margin-top: 36px;
+}
+
+@media (max-width: 560px) {
+  .wide-only { display: none; }
+  .container { padding-top: 36px; }
 }
