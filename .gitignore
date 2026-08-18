@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.xlsx
+!tests/fixtures/*.xlsx
+uploads/
+.pytest_cache/

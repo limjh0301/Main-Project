@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>국회 요구자료 목록화 시스템</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div class="logo">🏛️ + 📄</div>
+      <h1>국회 요구자료 목록화 시스템</h1>
+      <p class="subtitle">요구서 PDF를 업로드하면 텍스트를 자동 추출해 엑셀 관리대장으로 정리합니다.</p>
+    </header>
+
+    <form id="process-form">
+      <section class="card">
+        <label class="radio-row">
+          <input type="radio" name="mode" value="existing" checked>
+          기존 엑셀 파일 사용
+          <span class="hint" title="이전에 이 시스템으로 만든 관리대장에 접수 내역을 이어서 추가합니다.">ⓘ</span>
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="mode" value="new">
+          새 관리대장 생성
+          <span class="hint" title="새 엑셀 관리대장을 만들어 접수 내역을 기록합니다.">ⓘ</span>
+        </label>
+
+        <div id="excel-section">
+          <p class="section-label">관리 중인 엑셀 파일 선택 (엑셀파일 1개만 선택):</p>
+          <div class="dropzone" id="excel-drop">
+            <span id="excel-drop-text">여기를 클릭하세요</span>
+          </div>
+          <input type="file" id="excel-input" accept=".xlsx,.xlsm" hidden>
+        </div>
+      </section>
+
+      <section class="card">
+        <p class="section-label">요구서 PDF 파일 선택 (최대 5개 선택 가능) 또는 파일을 여기에 드래그하세요:</p>
+        <div class="dropzone" id="pdf-drop">
+          <span id="pdf-drop-text">PDF 파일을 여기에 드래그 하세요.<br>(클릭하여 선택할 수도 있습니다.)</span>
+        </div>
+        <input type="file" id="pdf-input" accept=".pdf" multiple hidden>
+        <ul id="pdf-list" class="file-list"></ul>
+      </section>
+
+      <details class="advanced">
+        <summary>고급 기능</summary>
+        <label class="check-row">
+          <input type="checkbox" name="force_ocr" id="force-ocr" {% if not ocr_available %}disabled{% endif %}>
+          텍스트 레이어를 무시하고 OCR 강제 실행
+          {% if not ocr_available %}<span class="warn">(서버에 OCR 도구가 설치되어 있지 않습니다)</span>{% endif %}
+        </label>
+      </details>
+
+      <button type="submit" class="submit-btn" id="submit-btn">▶ 파일 처리</button>
+    </form>
+
+    <section id="status" class="status" hidden></section>
+
+    <section id="result" class="card result" hidden>
+      <h2>처리 결과</h2>
+      <div id="result-summary"></div>
+      <div id="result-files"></div>
+      <a id="download-link" class="download-btn" href="#">📥 관리대장 엑셀 다운로드</a>
+    </section>
+
+    <footer class="footer">
+      <p>업로드된 파일은 처리 후 서버에 저장되지 않으며, 관리대장은 로컬 PC에서 관리됩니다.</p>
+    </footer>
+  </main>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
