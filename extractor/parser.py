@@ -24,13 +24,18 @@ _COMMITTEE_PATTERNS = [
     r"([가-힣·]{2,20}위원회)",
 ]
 
-# 요구의원/기관
+# 요구의원/기관 ("국회의원 홍길동의원실" 형태 우선)
 _MEMBER_PATTERNS = [
+    r"국회의원\s*([가-힣]{2,5})\s*의원실",
+    r"([가-힣]{2,5})\s*의원실",
     r"요구\s*의원\s*[:：]?\s*([가-힣]{2,5})",
     r"요구\s*위원\s*[:：]?\s*([가-힣]{2,5})",
-    r"([가-힣]{2,5})\s*의원(?:실|님)?",
+    r"([가-힣]{2,5})\s*의원(?:님)?",
     r"요구\s*기관\s*[:：]?\s*([^\n]{2,30})",
 ]
+
+# 의원명으로 오인하기 쉬운 일반 명사
+_MEMBER_BLACKLIST = {"국회", "국회의", "소관", "요구"}
 
 # 정당: "정당 : OO당" 또는 "홍길동 의원(OO당, 지역구)" 형식
 _PARTY_PATTERNS = [
@@ -51,6 +56,7 @@ _REQUEST_DATE_PATTERNS = [
 
 _DEADLINE_PATTERNS = [
     r"제출\s*기한\s*[:：]?\s*" + _DATE,
+    r"제출\s*완료\s*일자?\s*[:：]?\s*" + _DATE,
     r"(?:까지\s*제출|제출\s*요구일)\s*[:：]?\s*" + _DATE,
     _DATE + r"\s*까지",
 ]
@@ -64,11 +70,16 @@ _REQUESTER_PATTERNS = [
 
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
-# 자료 요구내용 항목 시작: "1. ...", "1) ...", "○ ...", "□ ..." 등 (번호·기호 포함해 보존)
-_ITEM_START = re.compile(r"^\s*((?:\d{1,3}\s*[.)]|[○◦□■▶•])\s*.+)$")
+# 자료 요구내용 항목 시작: "1. ...", "1) ...", "○ ...", "- ..." 등 (번호·기호 포함해 보존)
+_ITEM_BULLET_START = re.compile(r"^\s*([○◦□■▶•\-–]\s*\S.*)$")
+# 표 양식에서는 왼쪽 열(기관명)이 같은 줄 앞에 붙으므로, 한글·공백 접두 뒤의 번호 항목도 인식
+_ITEM_NUM_ANY = re.compile(r"^[가-힣\s]*?(\d{1,3}\s*[.)]\s*\S.*)$")
 
 # 항목 수집을 끝내는 안내문·마감 문구
-_ITEM_STOP = ("붙임", "끝.", "위 자료", "상기 자료", "유의", "문의")
+_ITEM_STOP = ("붙임", "끝.", "위 자료", "상기 자료", "유의", "문의", "의정자료전자유통시스템")
+
+# 페이지 표기(1 / 1), 세로쓰기 표 헤더(소 관 기 관 ...) 등 무시할 줄
+_SKIP_LINE = re.compile(r"^(?:\d+\s*/\s*\d+|(?:[가-힣]\s+){2,}[가-힣])$")
 
 # 라벨 줄(예: "제출기한 : ...")은 항목의 연속 줄로 보지 않음
 _LABEL_LINE = re.compile(
@@ -143,22 +154,47 @@ def _extract_items(text: str) -> list[str]:
         if any(line.startswith(word) for word in _ITEM_STOP):
             flush()
             continue
+        if _SKIP_LINE.match(line):
+            continue
 
-        start = _ITEM_START.match(line)
-        if start:
+        bullet = _ITEM_BULLET_START.match(line)
+        if bullet and current:
+            # 항목 수집 중의 "- ..." 줄은 하위 내용이므로 이어붙인다
+            current.append(bullet.group(1).strip())
+            continue
+
+        # 번호 항목은 표 양식의 왼쪽 열(한글 기관명)이 앞에 붙어 있어도 인식
+        num = _ITEM_NUM_ANY.match(line)
+        if num:
             flush()
-            current.append(start.group(1).strip())
+            current.append(num.group(1).strip())
+            continue
+        if bullet:
+            flush()
+            current.append(bullet.group(1).strip())
             continue
 
         # 항목 수집 중이면, 라벨 줄이 아닌 이상 줄바꿈으로 잘린 연속 문장으로 본다
         if current:
             if _LABEL_LINE.match(line):
                 flush()
+            elif len(line) <= 2:
+                # 표 왼쪽 열에서 줄바꿈된 기관명 조각("원" 등)은 무시
+                continue
             else:
                 current.append(line)
 
     flush()
     return items
+
+
+def _match_member(text: str) -> str:
+    for pattern in _MEMBER_PATTERNS:
+        for m in re.finditer(pattern, text):
+            candidate = re.sub(r"\s+", " ", m.group(1)).strip()
+            if candidate not in _MEMBER_BLACKLIST:
+                return candidate
+    return ""
 
 
 def parse_request(text: str) -> ParsedRequest:
@@ -167,7 +203,7 @@ def parse_request(text: str) -> ParsedRequest:
         request_date=_first_date(_REQUEST_DATE_PATTERNS, text, "-"),
         deadline=_first_date(_DEADLINE_PATTERNS, text, "."),
         doc_no=_first_match(_DOC_NO_PATTERNS, text),
-        member=_first_match(_MEMBER_PATTERNS, text),
+        member=_match_member(text),
         party=_first_match(_PARTY_PATTERNS, text),
         district=_first_match(_DISTRICT_PATTERNS, text),
         items=_extract_items(text),

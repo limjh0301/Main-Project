@@ -1,6 +1,9 @@
 @echo off
 cd /d "%~dp0"
 
+rem 설치가 이미 확인된 경우: 검사 없이 곧바로 실행 (빠른 시작)
+if exist .venv\ready.ok goto run
+
 where python >nul 2>nul
 if errorlevel 1 goto nopython
 
@@ -25,13 +28,17 @@ echo [준비 2/2] 패키지 설치 단계 종료
 :checkpkg
 rem 패키지가 실제로 설치됐는지 확인하고, 없으면 한 번 자동 재설치
 .venv\Scripts\python -c "import flask, pdfplumber, openpyxl" >nul 2>nul
-if not errorlevel 1 goto run
+if not errorlevel 1 goto ready
 if "%RETRIED%"=="1" goto pkgfail
 set RETRIED=1
 echo.
 echo [준비] 패키지가 설치되어 있지 않아 설치를 시작합니다... (인터넷 연결 필요)
 call .venv\Scripts\pip install -r requirements.txt --timeout 15 --retries 2
 goto checkpkg
+
+:ready
+rem 다음 실행부터는 검사를 건너뛰도록 완료 표시를 남긴다
+echo ok> .venv\ready.ok
 
 :run
 echo.
@@ -43,6 +50,7 @@ echo.
 .venv\Scripts\python app.py
 echo.
 echo [안내] 서버가 종료되었습니다. 위에 오류 메시지가 있다면 확인해 주세요.
+echo 실행 문제가 반복되면 .venv 폴더를 삭제한 뒤 다시 실행해 보세요.
 pause
 exit /b
 

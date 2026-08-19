@@ -7,8 +7,6 @@
 import logging
 import shutil
 
-import pdfplumber
-
 logger = logging.getLogger(__name__)
 
 # 문서 전체에서 추출된 글자 수가 이 값 미만이면 스캔본으로 간주하고 OCR 수행
@@ -47,6 +45,9 @@ def extract_text(pdf_path: str, force_ocr: bool = False) -> tuple[str, str]:
 
 
 def _extract_text_layer(pdf_path: str) -> str:
+    # 무거운 라이브러리는 첫 처리 시점에 로딩해 서버 시작을 빠르게 한다
+    import pdfplumber
+
     pages = []
     try:
         with pdfplumber.open(pdf_path) as pdf:

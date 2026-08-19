@@ -5,10 +5,6 @@
 요구서 1건 = 1행으로 기록한다.
 """
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-
 SHEET_NAME = "관리대장"
 
 # (헤더, 너비, 행 데이터 키) — 키가 None이면 수동 관리 항목(빈 값으로 둠)
@@ -31,31 +27,49 @@ COLUMNS = [
 HEADER = [name for name, _, _ in COLUMNS]
 _CONTENT_COL = HEADER.index("자료 요구내용") + 1
 
-_HEADER_FILL = PatternFill("solid", fgColor="1F6FB2")
-_HEADER_FONT = Font(bold=True, color="FFFFFF")
-_THIN_BORDER = Border(*(Side(style="thin", color="CCCCCC"),) * 4)
+# openpyxl은 무거우므로 첫 사용 시점에 로딩한다 (서버 시작 속도 개선)
+_STYLES: dict = {}
+
+
+def _styles() -> dict:
+    if not _STYLES:
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+        _STYLES.update(
+            header_fill=PatternFill("solid", fgColor="1F6FB2"),
+            header_font=Font(bold=True, color="FFFFFF"),
+            border=Border(*(Side(style="thin", color="CCCCCC"),) * 4),
+            Alignment=Alignment,
+        )
+    return _STYLES
 
 
 class LedgerFormatError(ValueError):
     """기존 엑셀 파일의 열 구조가 관리대장 서식과 다를 때 발생."""
 
 
-def create_ledger() -> Workbook:
+def create_ledger():
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    st = _styles()
     wb = Workbook()
     ws = wb.active
     ws.title = SHEET_NAME
     for idx, (name, width, _) in enumerate(COLUMNS, start=1):
         cell = ws.cell(row=1, column=idx, value=name)
-        cell.fill = _HEADER_FILL
-        cell.font = _HEADER_FONT
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = _THIN_BORDER
+        cell.fill = st["header_fill"]
+        cell.font = st["header_font"]
+        cell.alignment = st["Alignment"](horizontal="center", vertical="center")
+        cell.border = st["border"]
         ws.column_dimensions[get_column_letter(idx)].width = width
     ws.freeze_panes = "A2"
     return wb
 
 
-def open_ledger(path: str) -> Workbook:
+def open_ledger(path: str):
+    from openpyxl import load_workbook
+
     wb = load_workbook(path)
     if SHEET_NAME in wb.sheetnames:
         ws = wb[SHEET_NAME]
@@ -73,8 +87,9 @@ def open_ledger(path: str) -> Workbook:
     return wb
 
 
-def append_rows(wb: Workbook, rows: list[dict]) -> int:
+def append_rows(wb, rows: list[dict]) -> int:
     """요구서 1건당 1행씩 관리대장에 추가하고, 추가된 행 수를 반환한다."""
+    st = _styles()
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
     next_row = ws.max_row + 1
 
@@ -82,8 +97,8 @@ def append_rows(wb: Workbook, rows: list[dict]) -> int:
         for col, (_, _, key) in enumerate(COLUMNS, start=1):
             value = row_data.get(key, "") if key else ""
             cell = ws.cell(row=next_row + offset, column=col, value=value)
-            cell.border = _THIN_BORDER
-            cell.alignment = Alignment(
+            cell.border = st["border"]
+            cell.alignment = st["Alignment"](
                 vertical="center", wrap_text=(col == _CONTENT_COL)
             )
     return len(rows)
