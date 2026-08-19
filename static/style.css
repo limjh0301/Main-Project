@@ -44,7 +44,7 @@ body {
   gap: 10px;
   text-decoration: none;
 }
-.topbar-logo { height: 26px; }
+.topbar-logo { height: 36px; }
 .topbar-name {
   font-size: 13px;
   font-weight: 700;
@@ -365,7 +365,7 @@ body {
   font-size: 12.5px;
   margin-top: 40px;
 }
-.footer-logo { height: 30px; margin-bottom: 6px; }
+.footer-logo { height: 46px; margin-bottom: 6px; }
 .footer-org {
   font-weight: 700;
   color: var(--ink-sub);
