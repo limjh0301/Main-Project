@@ -18,19 +18,66 @@
   </nav>
   <main class="container">
     <header class="hero">
+      <img src="{{ url_for('static', filename='img/mascot-cloud.svg') }}" alt="" class="float-cloud" aria-hidden="true">
       <span class="hero-badge">🏛️ 의정자료전자유통시스템 요구서 — PDF 자동 목록화</span>
-      <h1 class="hero-title">
-        쌓여가는 요구서 PDF,<br>
-        <span class="accent">엑셀 대장으로 정리하다</span>
-      </h1>
-      <p class="hero-sub">
-        <strong>국회 요구자료 목록화 시스템</strong>은 요구서 PDF를 올리면 텍스트를 자동 추출(OCR 포함)해,<br class="wide-only">
-        문서번호·의원명·요구자료 목록을 <strong>엑셀 관리대장</strong>으로 한 번에 정리합니다.
-      </p>
+      <h1 class="hero-title">국회 요구자료 <span class="accent">목록화 시스템</span></h1>
+
+      <div class="flow" role="img" aria-label="쌓여가는 요구서 PDF를 자동 추출해 엑셀 관리대장으로 정리합니다">
+        <div class="flow-item">
+          <svg viewBox="0 0 120 112" class="flow-icon">
+            <rect x="12" y="22" width="62" height="80" rx="8" fill="#fff" stroke="#dcd8ef" stroke-width="2" transform="rotate(-9 43 62)"/>
+            <rect x="22" y="18" width="64" height="82" rx="8" fill="#fff" stroke="#cfc9ea" stroke-width="2" transform="rotate(-4.5 54 59)"/>
+            <rect x="36" y="14" width="68" height="88" rx="9" fill="#fff" stroke="#b9b0e2" stroke-width="2.5"/>
+            <rect x="45" y="24" width="36" height="17" rx="8.5" fill="#e4573d"/>
+            <text x="63" y="36.5" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="inherit">PDF</text>
+            <rect x="45" y="52" width="50" height="5" rx="2.5" fill="#e3e0f2"/>
+            <rect x="45" y="63" width="42" height="5" rx="2.5" fill="#e3e0f2"/>
+            <rect x="45" y="74" width="48" height="5" rx="2.5" fill="#e3e0f2"/>
+            <rect x="45" y="85" width="32" height="5" rx="2.5" fill="#e3e0f2"/>
+          </svg>
+          <span class="flow-label">쌓여가는 요구서 PDF</span>
+        </div>
+
+        <div class="flow-arrow">
+          <img src="{{ url_for('static', filename='img/mascot-cat.svg') }}" alt="" class="flow-cat" aria-hidden="true">
+          <svg viewBox="0 0 130 26" class="flow-arrow-svg">
+            <path d="M6,13 H104" fill="none" stroke="#8b7cf6" stroke-width="3.5" stroke-dasharray="1 9" stroke-linecap="round"/>
+            <path d="M104,4 L122,13 L104,22 Z" fill="#8b7cf6"/>
+          </svg>
+          <span class="flow-label accent-label">자동 추출 · OCR</span>
+        </div>
+
+        <div class="flow-item">
+          <svg viewBox="0 0 120 112" class="flow-icon">
+            <rect x="20" y="14" width="80" height="88" rx="9" fill="#fff" stroke="#9fd4b4" stroke-width="2.5"/>
+            <path d="M20,23 C20,18 24,14 29,14 L91,14 C96,14 100,18 100,23 L100,34 L20,34 Z" fill="#2f9e5f"/>
+            <text x="60" y="28.5" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff" font-family="inherit">관리대장.xlsx</text>
+            <g stroke="#d9efe1" stroke-width="1.5">
+              <path d="M20,50 H100 M20,66 H100 M20,82 H100"/>
+              <path d="M44,34 V102 M72,34 V102"/>
+            </g>
+            <rect x="25" y="41" width="14" height="4.5" rx="2.25" fill="#bfe3cc"/>
+            <rect x="49" y="41" width="18" height="4.5" rx="2.25" fill="#bfe3cc"/>
+            <rect x="77" y="41" width="18" height="4.5" rx="2.25" fill="#bfe3cc"/>
+            <rect x="25" y="57" width="14" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="49" y="57" width="18" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="77" y="57" width="18" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="25" y="73" width="14" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="49" y="73" width="18" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="77" y="73" width="18" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="25" y="89" width="14" height="4.5" rx="2.25" fill="#e2f2e8"/>
+            <rect x="49" y="89" width="18" height="4.5" rx="2.25" fill="#e2f2e8"/>
+          </svg>
+          <span class="flow-label">엑셀 대장으로 정리</span>
+        </div>
+      </div>
+
       <span class="hero-note">업로드 파일은 서버에 저장되지 않으며, 관리대장은 로컬 PC에서 관리됩니다</span>
     </header>
 
     <form id="process-form">
+      <div class="card-wrap">
+        <img src="{{ url_for('static', filename='img/mascot-pin.svg') }}" alt="" class="peek-pin" aria-hidden="true">
       <section class="card">
         <div class="segmented" role="radiogroup" aria-label="관리대장 선택">
           <label class="segment">
@@ -51,6 +98,7 @@
           <input type="file" id="excel-input" accept=".xlsx,.xlsm" hidden>
         </div>
       </section>
+      </div>
 
       <section class="card">
         <p class="section-label">요구서 PDF 파일 선택 <span class="muted">(최대 5개)</span></p>
@@ -84,11 +132,6 @@
     </section>
 
     <footer class="footer">
-      <div class="mascots" aria-hidden="true">
-        <img src="{{ url_for('static', filename='img/mascot-pin.svg') }}" alt="" class="mascot">
-        <img src="{{ url_for('static', filename='img/mascot-cat.svg') }}" alt="" class="mascot mascot-main">
-        <img src="{{ url_for('static', filename='img/mascot-cloud.svg') }}" alt="" class="mascot">
-      </div>
       <img src="{{ url_for('static', filename='img/kisti-logo.svg') }}" alt="KISTI" class="footer-logo">
       <p class="footer-org">한국과학기술정보연구원 · www.kisti.re.kr</p>
       <p>비식별정보처리방침 · 책임의 한계와 법적고지</p>
