@@ -155,4 +155,9 @@ def download(result_id: str):
 
 
 if __name__ == "__main__":
+    import threading
+    import webbrowser
+
+    # 서버가 뜬 직후 기본 브라우저로 접속 페이지를 자동으로 연다
+    threading.Timer(1.2, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
     app.run(host="0.0.0.0", port=5000, debug=False)

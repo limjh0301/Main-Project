@@ -14,25 +14,36 @@
   - 요구자료 항목별 1행씩 기록, 열 구조 검증으로 서식 오류 방지
 - **개인정보 비저장**: 업로드 파일은 처리 후 임시 폴더에서만 다뤄지며, 결과 엑셀은 일정 시간(30분) 후 자동 삭제
 
-## 설치
+## 로컬 PC에서 실행하기 (권장)
+
+### Windows
+
+1. [python.org](https://www.python.org/downloads/)에서 Python 3.10 이상 설치
+   (설치 화면에서 **"Add Python to PATH"** 반드시 체크)
+2. 프로젝트 폴더의 **`start.bat`** 더블클릭
+   - 처음 한 번은 패키지 설치로 1~2분 걸리고, 이후에는 바로 실행됩니다.
+   - 서버가 뜨면 브라우저가 자동으로 열립니다 (`http://127.0.0.1:5000`).
+3. **`바로가기.html`** 파일을 바탕화면에 복사해 두면, 더블클릭만으로 시스템에 접속할 수 있습니다.
+   (서버가 꺼져 있으면 start.bat을 먼저 실행하라는 안내가 표시됩니다.)
+
+### macOS / Linux / Raspberry Pi
 
 ```bash
-# Python 패키지
+./start.sh
+```
+
+### 수동 설치
+
+```bash
 pip install -r requirements.txt
+python app.py            # http://localhost:5000 자동 접속
 
 # OCR 도구 (스캔본 PDF 처리에 필요, 선택)
 sudo apt install tesseract-ocr tesseract-ocr-kor poppler-utils
+# Windows는 https://github.com/UB-Mannheim/tesseract/wiki 설치 후 한국어(kor) 언어팩 선택
 ```
 
 OCR 도구가 없어도 텍스트 레이어가 있는 PDF는 정상 처리됩니다.
-
-## 실행
-
-```bash
-python app.py
-# http://localhost:5000 접속
-```
-
 라즈베리파이 등 경량 서버에서 systemd 서비스로 등록해 운영할 수 있습니다.
 
 ## 사용 방법
