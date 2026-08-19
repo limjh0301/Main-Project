@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="KISTI 마스코트">
+  <!-- 다리 (구름 뒤에서 시작) -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M78,128 C78,162 74,170 54,176" stroke="#2b3170" stroke-width="24"/>
+    <path d="M78,128 C78,162 74,170 54,176" stroke="#f5c518" stroke-width="12"/>
+    <path d="M122,128 C122,162 126,170 146,176" stroke="#2b3170" stroke-width="24"/>
+    <path d="M122,128 C122,162 126,170 146,176" stroke="#f5c518" stroke-width="12"/>
+    <path d="M100,128 L100,184" stroke="#2b3170" stroke-width="24"/>
+    <path d="M100,128 L100,184" stroke="#f5c518" stroke-width="12"/>
+  </g>
+  <!-- 구름 본체 -->
+  <path d="M30,104 C30,84 42,70 60,67 C64,38 136,38 140,67 C158,70 170,84 170,104
+           C170,126 152,138 126,138 L74,138 C48,138 30,126 30,104 Z"
+        fill="#fff" stroke="#2b3170" stroke-width="9" stroke-linejoin="round"/>
+  <!-- 얼굴 -->
+  <ellipse cx="89" cy="96" rx="7" ry="11" fill="#2b3170"/>
+  <ellipse cx="111" cy="96" rx="7" ry="11" fill="#2b3170"/>
+  <ellipse cx="57" cy="104" rx="13" ry="10" fill="#f2a0c0"/>
+  <ellipse cx="143" cy="104" rx="13" ry="10" fill="#f2a0c0"/>
+</svg>

@@ -26,7 +26,30 @@ body {
 .container {
   max-width: 660px;
   margin: 0 auto;
-  padding: 56px 16px 64px;
+  padding: 40px 16px 64px;
+}
+
+/* ---------- 상단 기관 바 ---------- */
+.topbar {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-brand {
+  max-width: 660px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.topbar-logo { height: 26px; }
+.topbar-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-sub);
+  letter-spacing: -0.01em;
 }
 
 /* ---------- 히어로 ---------- */
@@ -272,7 +295,23 @@ body {
   text-align: center;
   color: var(--ink-faint);
   font-size: 12.5px;
-  margin-top: 36px;
+  margin-top: 40px;
+}
+.mascots {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 22px;
+  margin-bottom: 18px;
+}
+.mascot { height: 64px; transition: transform 0.2s; }
+.mascot-main { height: 88px; }
+.mascot:hover { transform: translateY(-6px); }
+.footer-logo { height: 30px; margin-bottom: 6px; }
+.footer-org {
+  font-weight: 700;
+  color: var(--ink-sub);
+  margin-bottom: 4px;
 }
 
 @media (max-width: 560px) {

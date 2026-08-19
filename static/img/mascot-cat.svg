@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 300" role="img" aria-label="KISTI 마스코트">
+  <!-- 귀 -->
+  <path d="M42,100 C34,58 42,32 62,18 C84,30 98,54 102,84 Z"
+        fill="#fff" stroke="#2b3170" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M52,74 C50,56 54,42 62,32 C72,40 80,52 85,66 Z" fill="#cfd4e2"/>
+  <path d="M178,100 C186,58 178,32 158,18 C136,30 122,54 118,84 Z"
+        fill="#fff" stroke="#2b3170" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M168,74 C170,56 166,42 158,32 C148,40 140,52 135,66 Z" fill="#cfd4e2"/>
+  <!-- 몸통 -->
+  <rect x="62" y="200" width="96" height="80" rx="34" fill="#fff" stroke="#2b3170" stroke-width="7"/>
+  <!-- 팔 -->
+  <path d="M64,222 C50,232 44,246 44,258" fill="none" stroke="#2b3170" stroke-width="7" stroke-linecap="round"/>
+  <path d="M156,222 C170,232 176,246 176,258" fill="none" stroke="#2b3170" stroke-width="7" stroke-linecap="round"/>
+  <!-- 다리 사이 선 -->
+  <path d="M110,258 L110,280" fill="none" stroke="#2b3170" stroke-width="6" stroke-linecap="round"/>
+  <!-- 머리 -->
+  <rect x="18" y="60" width="184" height="158" rx="76" fill="#fff" stroke="#2b3170" stroke-width="8"/>
+  <!-- 화면 얼굴 -->
+  <rect x="44" y="88" width="132" height="102" rx="34" fill="#29b0e6"/>
+  <path d="M52,120 C60,98 86,90 118,92 C150,94 166,102 170,112 C170,98 158,92 142,90
+           L78,90 C60,92 52,104 52,120 Z" fill="#79d2f2" opacity="0.9"/>
+  <!-- 눈, 볼, 미소 -->
+  <ellipse cx="90" cy="132" rx="9" ry="14" fill="#2b3170"/>
+  <ellipse cx="130" cy="132" rx="9" ry="14" fill="#2b3170"/>
+  <ellipse cx="62" cy="142" rx="12" ry="9" fill="#ee5f74"/>
+  <ellipse cx="158" cy="142" rx="12" ry="9" fill="#ee5f74"/>
+  <path d="M84,154 Q110,172 136,154" fill="none" stroke="#2b3170" stroke-width="6" stroke-linecap="round"/>
+  <!-- 배의 KISTI 로고 -->
+  <text x="110" y="248" text-anchor="middle"
+        font-family="'Noto Sans KR','Arial Black',sans-serif"
+        font-style="italic" font-weight="900" font-size="17"
+        fill="#0c59a4">Ki<tspan fill="#df1e2d" font-size="20">S</tspan>Ti</text>
+</svg>

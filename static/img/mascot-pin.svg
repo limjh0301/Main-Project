@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 224" role="img" aria-label="KISTI 마스코트">
+  <defs>
+    <clipPath id="pin-right"><rect x="100" y="0" width="100" height="224"/></clipPath>
+  </defs>
+  <!-- 귀 -->
+  <circle cx="53" cy="42" r="25" fill="#fff" stroke="#2b3170" stroke-width="10"/>
+  <circle cx="147" cy="42" r="25" fill="#fff" stroke="#2b3170" stroke-width="10"/>
+  <!-- 옆 물방울 날개 -->
+  <path d="M38,128 C48,150 44,168 28,176 C14,168 12,146 22,128 C27,120 33,120 38,128 Z"
+        fill="#fff" stroke="#2b3170" stroke-width="8" transform="rotate(18 30 152)"/>
+  <path d="M162,128 C152,150 156,168 172,176 C186,168 188,146 178,128 C173,120 167,120 162,128 Z"
+        fill="#fff" stroke="#2b3170" stroke-width="8" transform="rotate(-18 170 152)"/>
+  <!-- 핀(물방울) 본체 -->
+  <path id="pin-body" d="M100,208 C60,178 27,138 27,96 C27,52 60,22 100,22 C140,22 173,52 173,96 C173,138 140,178 100,208 Z"
+        fill="#d3dd1c"/>
+  <path d="M100,208 C60,178 27,138 27,96 C27,52 60,22 100,22 C140,22 173,52 173,96 C173,138 140,178 100,208 Z"
+        fill="#b6c414" clip-path="url(#pin-right)"/>
+  <path d="M100,208 C60,178 27,138 27,96 C27,52 60,22 100,22 C140,22 173,52 173,96 C173,138 140,178 100,208 Z"
+        fill="none" stroke="#2b3170" stroke-width="10" stroke-linejoin="round"/>
+  <!-- 얼굴 -->
+  <circle cx="100" cy="98" r="54" fill="#fff"/>
+  <ellipse cx="72" cy="92" rx="8" ry="12" fill="#2b3170"/>
+  <ellipse cx="128" cy="92" rx="8" ry="12" fill="#2b3170"/>
+  <!-- 나침반 다이아몬드 -->
+  <polygon points="100,54 121,102 79,102" fill="#da2128"/>
+  <polygon points="79,102 121,102 100,150" fill="#1d71b8"/>
+  <polygon points="100,54 121,102 100,150 79,102" fill="none" stroke="#2b3170" stroke-width="8" stroke-linejoin="round"/>
+</svg>
