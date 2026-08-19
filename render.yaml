@@ -1,0 +1,9 @@
+# Render.com 원클릭 배포 설정 (Blueprint)
+# 사용법: render.com 가입 → New → Blueprint → 이 GitHub 저장소 연결 → Apply
+services:
+  - type: web
+    name: yogu
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    autoDeploy: true
