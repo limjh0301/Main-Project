@@ -1,0 +1,14 @@
+[Unit]
+Description=국회 요구자료 목록화 시스템
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/yogu
+ExecStart=/opt/yogu/.venv/bin/gunicorn -b 0.0.0.0:5000 -w 2 --timeout 300 app:app
+Restart=always
+RestartSec=5
+User=yogu
+Group=yogu
+
+[Install]
+WantedBy=multi-user.target
