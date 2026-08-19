@@ -23,9 +23,15 @@ call .venv\Scripts\pip install -r requirements.txt --timeout 15 --retries 2
 echo [준비 2/2] 패키지 설치 단계 종료
 
 :checkpkg
-rem 패키지가 실제로 설치됐는지 확인 (설치 실패 시 여기서 잡아냄)
+rem 패키지가 실제로 설치됐는지 확인하고, 없으면 한 번 자동 재설치
 .venv\Scripts\python -c "import flask, pdfplumber, openpyxl" >nul 2>nul
-if errorlevel 1 goto pkgfail
+if not errorlevel 1 goto run
+if "%RETRIED%"=="1" goto pkgfail
+set RETRIED=1
+echo.
+echo [준비] 패키지가 설치되어 있지 않아 설치를 시작합니다... (인터넷 연결 필요)
+call .venv\Scripts\pip install -r requirements.txt --timeout 15 --retries 2
+goto checkpkg
 
 :run
 echo.
