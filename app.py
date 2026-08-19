@@ -155,8 +155,18 @@ def download(result_id: str):
 
 
 if __name__ == "__main__":
+    import socket
     import threading
     import webbrowser
+
+    # 포트가 이미 사용 중인지 먼저 확인해 명확한 안내를 준다
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if sock.connect_ex(("127.0.0.1", 5000)) == 0:
+            print()
+            print("[안내] 포트 5000에서 이미 서버가 실행 중입니다.")
+            print("       브라우저에서 http://127.0.0.1:5000 으로 바로 접속하세요.")
+            webbrowser.open("http://127.0.0.1:5000")
+            raise SystemExit(0)
 
     # 서버가 뜬 직후 기본 브라우저로 접속 페이지를 자동으로 연다
     threading.Timer(1.2, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
