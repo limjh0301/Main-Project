@@ -1,28 +1,37 @@
 @echo off
-chcp 65001 >nul
-title êµ­íšŒ ìš”êµ¬ìë£Œ ëª©ë¡í™” ì‹œìŠ¤í…œ
 cd /d "%~dp0"
 
 where python >nul 2>nul
-if errorlevel 1 (
-    echo [ì˜¤ë¥˜] Pythonì´ ì„¤ì¹˜ë˜ì–´ ìˆì§€ ì•ŠìŠµë‹ˆë‹¤.
-    echo https://www.python.org/downloads/ ì—ì„œ Python 3.10 ì´ìƒì„ ì„¤ì¹˜í•œ ë’¤ ë‹¤ì‹œ ì‹¤í–‰í•´ ì£¼ì„¸ìš”.
-    echo ì„¤ì¹˜ ì‹œ "Add Python to PATH" ì˜µì…˜ì„ ë°˜ë“œì‹œ ì²´í¬í•˜ì„¸ìš”.
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto nopython
 
-if not exist .venv (
-    echo [ì¤€ë¹„] ì²˜ìŒ ì‹¤í–‰ì´ë¯€ë¡œ ê°€ìƒí™˜ê²½ì„ ë§Œë“¤ê³  íŒ¨í‚¤ì§€ë¥¼ ì„¤ì¹˜í•©ë‹ˆë‹¤. ì ì‹œë§Œ ê¸°ë‹¤ë ¤ ì£¼ì„¸ìš”...
-    python -m venv .venv
-    .venv\Scripts\python -m pip install --upgrade pip -q
-    .venv\Scripts\pip install -r requirements.txt -q
-)
+rem °¡»óÈ¯°æÀÌ ¾ø°Å³ª ¼Õ»óµÈ °æ¿ì ´Ù½Ã ¼³Ä¡
+if exist .venv\Scripts\python.exe goto run
 
+echo [ÁØºñ] Ã³À½ ½ÇÇà: °¡»óÈ¯°æÀ» ¸¸µé°í ÆĞÅ°Áö¸¦ ¼³Ä¡ÇÕ´Ï´Ù. 1~2ºĞ °É¸³´Ï´Ù...
+if exist .venv rmdir /s /q .venv
+python -m venv .venv
+if not exist .venv\Scripts\python.exe goto venvfail
+call .venv\Scripts\python -m pip install --upgrade pip -q
+call .venv\Scripts\pip install -r requirements.txt -q
+
+:run
 echo.
-echo  êµ­íšŒ ìš”êµ¬ìë£Œ ëª©ë¡í™” ì‹œìŠ¤í…œì„ ì‹œì‘í•©ë‹ˆë‹¤.
-echo  ì ì‹œ í›„ ë¸Œë¼ìš°ì €ê°€ ìë™ìœ¼ë¡œ ì—´ë¦½ë‹ˆë‹¤. (ì£¼ì†Œ: http://127.0.0.1:5000)
-echo  ì´ ì°½ì„ ë‹«ìœ¼ë©´ í”„ë¡œê·¸ë¨ì´ ì¢…ë£Œë©ë‹ˆë‹¤.
+echo  ±¹È¸ ¿ä±¸ÀÚ·á ¸ñ·ÏÈ­ ½Ã½ºÅÛÀ» ½ÃÀÛÇÕ´Ï´Ù.
+echo  Àá½Ã ÈÄ ºê¶ó¿ìÀú°¡ ÀÚµ¿À¸·Î ¿­¸³´Ï´Ù. ÁÖ¼Ò: http://127.0.0.1:5000
+echo  ÀÌ Ã¢À» ´İÀ¸¸é ÇÁ·Î±×·¥ÀÌ Á¾·áµË´Ï´Ù.
 echo.
 .venv\Scripts\python app.py
 pause
+exit /b
+
+:nopython
+echo [¿À·ù] PythonÀÌ ¼³Ä¡µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.
+echo https://www.python.org/downloads/ ¿¡¼­ Python 3.10 ÀÌ»óÀ» ¼³Ä¡ÇÏ¼¼¿ä.
+echo ¼³Ä¡ÇÒ ¶§ "Add Python to PATH" ¿É¼ÇÀ» ¹İµå½Ã Ã¼Å©ÇØ¾ß ÇÕ´Ï´Ù.
+pause
+exit /b 1
+
+:venvfail
+echo [¿À·ù] °¡»óÈ¯°æ »ı¼º¿¡ ½ÇÆĞÇß½À´Ï´Ù. ÀÎÅÍ³İ ¿¬°áÀ» È®ÀÎÇÑ µÚ ´Ù½Ã ½ÇÇàÇØ ÁÖ¼¼¿ä.
+pause
+exit /b 1
