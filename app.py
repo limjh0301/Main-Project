@@ -6,9 +6,11 @@
 """
 
 import os
+import re
 import tempfile
 import time
 import uuid
+from datetime import date
 
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
@@ -76,7 +78,9 @@ def process():
                 return jsonify({"error": str(e)}), 400
             except Exception:
                 return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
-            base_name = os.path.splitext(excel_file.filename)[0]
+            base_name = os.path.splitext(os.path.basename(excel_file.filename))[0]
+            # 이전 처리에서 붙은 날짜 접미사(_YYMMDD)는 떼고 오늘 날짜로 갱신
+            base_name = re.sub(r"_\d{6}$", "", base_name)
         else:
             wb = create_ledger()
             base_name = "요구자료관리대장"
@@ -117,7 +121,7 @@ def process():
         "results": results,
         "total_rows": len(rows),
         "download_url": f"/download/{result_id}",
-        "download_name": f"{base_name}.xlsx",
+        "download_name": f"{base_name}_{date.today():%y%m%d}.xlsx",
     })
 
 
