@@ -9,14 +9,16 @@ from extractor.ledger import (
 )
 
 ROW = {
-    "request_date": "2026-08-15",
     "committee": "기획재정위원회",
-    "member": "홍길동",
-    "doc_no": "기재위 제2026-153호",
-    "item": "국세 감면 현황",
-    "deadline": "2026-08-25",
-    "department": "기획재정부",
-    "source_file": "요구서.pdf",
+    "request_date": "2024-01-01",
+    "deadline": "2024.02.01",
+    "doc_no": "0001234567",
+    "member": "을지문덕",
+    "party": "칼퇴원한당",
+    "district": "조퇴도 원할시갑",
+    "content": "1. 최근 5년간 직원 칼퇴 내역\n2. 유연근무제 운영 현황",
+    "requester": "박삼관",
+    "email": "admin@yogu.work",
 }
 
 
@@ -26,18 +28,20 @@ def test_create_ledger_header():
     assert [ws.cell(row=1, column=i + 1).value for i in range(len(HEADER))] == HEADER
 
 
-def test_append_rows_serials(tmp_path):
+def test_append_one_row_per_request(tmp_path):
     wb = create_ledger()
-    assert append_rows(wb, [ROW, ROW]) == [1, 2]
+    assert append_rows(wb, [ROW, ROW]) == 2
 
-    # 저장 후 다시 열어 이어붙이면 연번이 이어져야 한다
     path = tmp_path / "ledger.xlsx"
     wb.save(path)
     wb2 = open_ledger(str(path))
-    assert append_rows(wb2, [ROW]) == [3]
+    append_rows(wb2, [ROW])
     ws = wb2.active
-    assert ws.cell(row=4, column=1).value == 3
-    assert ws.cell(row=4, column=6).value == "국세 감면 현황"
+    assert ws.max_row == 4  # 헤더 + 3행 (요구서 3건)
+    assert ws.cell(row=2, column=1).value == "기획재정위원회"
+    assert ws.cell(row=2, column=8).value.startswith("1. 최근 5년간")
+    # 수동 관리 항목(담당부서·제출여부·비고)은 비워 둔다
+    assert ws.cell(row=2, column=11).value in ("", None)
 
 
 def test_open_ledger_rejects_wrong_header(tmp_path):

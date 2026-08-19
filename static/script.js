@@ -145,12 +145,15 @@ function renderResult(json) {
   const filesBox = document.getElementById("result-files");
   filesBox.innerHTML = "";
   const fields = [
-    ["doc_no", "문서번호"],
-    ["committee", "위원회"],
-    ["member", "의원명"],
+    ["committee", "소관위원회"],
     ["request_date", "요구일자"],
     ["deadline", "제출기한"],
-    ["department", "담당부서"],
+    ["doc_no", "요구서번호"],
+    ["member", "요구의원/기관"],
+    ["party", "정당"],
+    ["district", "지역구"],
+    ["requester", "요구자"],
+    ["email", "요구자 이메일"],
   ];
 
   for (const r of json.results) {
@@ -180,7 +183,7 @@ function renderResult(json) {
     if (r.parsed.items.length > 0) {
       const tr = document.createElement("tr");
       const th = document.createElement("th");
-      th.textContent = "요구자료명";
+      th.textContent = "자료 요구내용";
       const td = document.createElement("td");
       r.parsed.items.forEach((item, i) => {
         if (i > 0) td.appendChild(document.createElement("br"));

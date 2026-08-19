@@ -98,13 +98,12 @@ def process():
                 return jsonify({"error": f"{f.filename}: {e}"}), 422
 
             parsed = parse_request(text)
-            file_rows = _build_rows(parsed, f.filename)
-            rows.extend(file_rows)
+            rows.append(_build_row(parsed))
             results.append({
                 "filename": f.filename,
                 "method": method,
                 "parsed": parsed.to_dict(),
-                "row_count": len(file_rows),
+                "row_count": 1,
                 "text_preview": text.strip()[:800],
             })
 
@@ -125,20 +124,21 @@ def process():
     })
 
 
-def _build_rows(parsed, source_filename: str) -> list[dict]:
-    """요구자료 항목별로 관리대장 행을 만든다. 항목이 없으면 문서 단위로 1행."""
-    common = {
-        "request_date": parsed.request_date,
+def _build_row(parsed) -> dict:
+    """요구서 1건을 관리대장 1행으로 만든다. 요구내용 항목은 줄바꿈으로 합친다."""
+    content = "\n".join(parsed.items) if parsed.items else "(요구내용 미추출 — 원본 확인 필요)"
+    return {
         "committee": parsed.committee,
-        "member": parsed.member,
-        "doc_no": parsed.doc_no,
+        "request_date": parsed.request_date,
         "deadline": parsed.deadline,
-        "department": parsed.department,
-        "source_file": source_filename,
+        "doc_no": parsed.doc_no,
+        "member": parsed.member,
+        "party": parsed.party,
+        "district": parsed.district,
+        "content": content,
+        "requester": parsed.requester,
+        "email": parsed.email,
     }
-    if parsed.items:
-        return [{**common, "item": item} for item in parsed.items]
-    return [{**common, "item": "(자료명 미추출 — 원본 확인 필요)"}]
 
 
 @app.get("/download/<result_id>")
