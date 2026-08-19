@@ -1,4 +1,5 @@
-const MAX_PDF = 5;
+const CONFIG = window.APP_CONFIG;
+const MAX_PDF = CONFIG.maxPdf;
 
 const form = document.getElementById("process-form");
 const excelSection = document.getElementById("excel-section");
@@ -18,7 +19,7 @@ let pdfFiles = [];
 // 모드 전환: 새 관리대장 생성 시 엑셀 선택 영역 숨김
 document.querySelectorAll('input[name="mode"]').forEach((radio) => {
   radio.addEventListener("change", () => {
-    excelSection.style.display = radio.value === "existing" && radio.checked ? "" : "none";
+    excelSection.style.display = radio.value === "existing" ? "" : "none";
   });
 });
 
@@ -140,28 +141,17 @@ function showStatus(message, isError) {
 
 function renderResult(json) {
   document.getElementById("result-summary").textContent =
-    `총 ${json.results.length}개 요구서에서 ${json.total_rows}건의 접수 내역을 관리대장에 추가했습니다.`;
+    `총 ${json.results.length}건의 요구서를 관리대장에 추가했습니다.`;
 
   const filesBox = document.getElementById("result-files");
   filesBox.innerHTML = "";
-  const fields = [
-    ["committee", "소관위원회"],
-    ["request_date", "요구일자"],
-    ["deadline", "제출기한"],
-    ["doc_no", "요구서번호"],
-    ["member", "요구의원/기관"],
-    ["party", "정당"],
-    ["district", "지역구"],
-    ["requester", "요구자"],
-    ["email", "요구자 이메일"],
-  ];
 
   for (const r of json.results) {
     const div = document.createElement("div");
     div.className = "result-file";
 
     const h3 = document.createElement("h3");
-    h3.textContent = `📄 ${r.filename} — ${r.row_count}건`;
+    h3.textContent = `📄 ${r.filename}`;
     const badge = document.createElement("span");
     badge.className = "badge";
     badge.textContent = r.method === "ocr" ? "OCR 추출" : "텍스트 추출";
@@ -169,7 +159,7 @@ function renderResult(json) {
     div.appendChild(h3);
 
     const table = document.createElement("table");
-    for (const [key, label] of fields) {
+    for (const { key, label } of CONFIG.fields) {
       const value = r.parsed[key];
       if (!value) continue;
       const tr = document.createElement("tr");
@@ -183,7 +173,7 @@ function renderResult(json) {
     if (r.parsed.items.length > 0) {
       const tr = document.createElement("tr");
       const th = document.createElement("th");
-      th.textContent = "자료 요구내용";
+      th.textContent = CONFIG.contentLabel;
       const td = document.createElement("td");
       r.parsed.items.forEach((item, i) => {
         if (i > 0) td.appendChild(document.createElement("br"));

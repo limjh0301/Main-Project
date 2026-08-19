@@ -25,7 +25,13 @@ COLUMNS = [
 ]
 
 HEADER = [name for name, _, _ in COLUMNS]
-_CONTENT_COL = HEADER.index("자료 요구내용") + 1
+_CONTENT_COL = [key for _, _, key in COLUMNS].index("content") + 1
+
+# 프론트 결과 미리보기가 사용할 (키, 라벨) 목록 — COLUMNS가 단일 출처
+UI_FIELDS = [
+    {"key": key, "label": name} for name, _, key in COLUMNS if key and key != "content"
+]
+CONTENT_LABEL = HEADER[_CONTENT_COL - 1]
 
 # openpyxl은 무거우므로 첫 사용 시점에 로딩한다 (서버 시작 속도 개선)
 _STYLES: dict = {}
@@ -35,13 +41,20 @@ def _styles() -> dict:
     if not _STYLES:
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+        side = Side(style="thin", color="CCCCCC")
         _STYLES.update(
             header_fill=PatternFill("solid", fgColor="1F6FB2"),
             header_font=Font(bold=True, color="FFFFFF"),
-            border=Border(*(Side(style="thin", color="CCCCCC"),) * 4),
-            Alignment=Alignment,
+            border=Border(left=side, right=side, top=side, bottom=side),
+            align_header=Alignment(horizontal="center", vertical="center"),
+            align_plain=Alignment(vertical="center"),
+            align_wrap=Alignment(vertical="center", wrap_text=True),
         )
     return _STYLES
+
+
+def _sheet(wb):
+    return wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
 
 
 class LedgerFormatError(ValueError):
@@ -60,7 +73,7 @@ def create_ledger():
         cell = ws.cell(row=1, column=idx, value=name)
         cell.fill = st["header_fill"]
         cell.font = st["header_font"]
-        cell.alignment = st["Alignment"](horizontal="center", vertical="center")
+        cell.alignment = st["align_header"]
         cell.border = st["border"]
         ws.column_dimensions[get_column_letter(idx)].width = width
     ws.freeze_panes = "A2"
@@ -71,10 +84,7 @@ def open_ledger(path: str):
     from openpyxl import load_workbook
 
     wb = load_workbook(path)
-    if SHEET_NAME in wb.sheetnames:
-        ws = wb[SHEET_NAME]
-    else:
-        ws = wb.active
+    ws = _sheet(wb)
     header = [
         (str(ws.cell(row=1, column=i + 1).value).strip() if ws.cell(row=1, column=i + 1).value else "")
         for i in range(len(HEADER))
@@ -90,7 +100,7 @@ def open_ledger(path: str):
 def append_rows(wb, rows: list[dict]) -> int:
     """요구서 1건당 1행씩 관리대장에 추가하고, 추가된 행 수를 반환한다."""
     st = _styles()
-    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+    ws = _sheet(wb)
     next_row = ws.max_row + 1
 
     for offset, row_data in enumerate(rows):
@@ -98,7 +108,5 @@ def append_rows(wb, rows: list[dict]) -> int:
             value = row_data.get(key, "") if key else ""
             cell = ws.cell(row=next_row + offset, column=col, value=value)
             cell.border = st["border"]
-            cell.alignment = st["Alignment"](
-                vertical="center", wrap_text=(col == _CONTENT_COL)
-            )
+            cell.alignment = st["align_wrap"] if col == _CONTENT_COL else st["align_plain"]
     return len(rows)

@@ -6,67 +6,71 @@
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 # 날짜: 2026. 8. 18 / 2026-08-18 / 2026년 8월 18일 등
 _DATE = r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*일?"
 
+def _compile(patterns: list[str]) -> list[re.Pattern]:
+    return [re.compile(p) for p in patterns]
+
+
 # 요구서번호: 전자유통시스템 10자리 번호 우선, 문서번호 형식 폴백
-_DOC_NO_PATTERNS = [
+_DOC_NO_PATTERNS = _compile([
     r"요구서\s*번호\s*[:：]?\s*([0-9][0-9\-]{5,19})",
     r"\b(\d{10})\b",
     r"문서\s*번호\s*[:：]?\s*(\S+(?:\s*제?\s*[\d\-]+\s*호)?)",
     r"([가-힣]+\s*제?\s*\d{2,}[\-–]\d+\s*호)",
-]
+])
 
-_COMMITTEE_PATTERNS = [
+_COMMITTEE_PATTERNS = _compile([
     r"(?:소관\s*)?위원회(?:명)?\s*[:：]\s*([가-힣·]{2,20}위원회)",
     r"([가-힣·]{2,20}위원회)",
-]
+])
 
 # 요구의원/기관 ("국회의원 홍길동의원실" 형태 우선)
-_MEMBER_PATTERNS = [
+_MEMBER_PATTERNS = _compile([
     r"국회의원\s*([가-힣]{2,5})\s*의원실",
     r"([가-힣]{2,5})\s*의원실",
     r"요구\s*의원\s*[:：]?\s*([가-힣]{2,5})",
     r"요구\s*위원\s*[:：]?\s*([가-힣]{2,5})",
     r"([가-힣]{2,5})\s*의원(?:님)?",
     r"요구\s*기관\s*[:：]?\s*([^\n]{2,30})",
-]
+])
 
 # 의원명으로 오인하기 쉬운 일반 명사
-_MEMBER_BLACKLIST = {"국회", "국회의", "소관", "요구"}
+_MEMBER_BLACKLIST = frozenset({"국회", "국회의", "소관", "요구"})
 
 # 정당: "정당 : OO당" 또는 "홍길동 의원(OO당, 지역구)" 형식
-_PARTY_PATTERNS = [
+_PARTY_PATTERNS = _compile([
     r"정당\s*[:：]\s*([^\n,()·]{2,20})",
     r"의원\s*\(\s*([^,·)\n]{2,20})\s*[,·]",
-]
+])
 
 # 지역구: "지역구 : 서울 종로구" 또는 "의원(OO당, 서울 종로구)" 형식
-_DISTRICT_PATTERNS = [
+_DISTRICT_PATTERNS = _compile([
     r"지역구\s*[:：]\s*([^\n]{2,30})",
     r"의원\s*\(\s*[^,·)\n]{2,20}\s*[,·]\s*([^)\n]{2,30})\)",
-]
+])
 
-_REQUEST_DATE_PATTERNS = [
+_REQUEST_DATE_PATTERNS = _compile([
     r"요구\s*일자?\s*[:：]?\s*" + _DATE,
     r"(?:시행|발송)일?자?\s*[:：]?\s*" + _DATE,
-]
+])
 
-_DEADLINE_PATTERNS = [
+_DEADLINE_PATTERNS = _compile([
     r"제출\s*기한\s*[:：]?\s*" + _DATE,
     r"제출\s*완료\s*일자?\s*[:：]?\s*" + _DATE,
     r"(?:까지\s*제출|제출\s*요구일)\s*[:：]?\s*" + _DATE,
     _DATE + r"\s*까지",
-]
+])
 
 # 요구자: 실무 담당자(보좌관·비서관 등)
-_REQUESTER_PATTERNS = [
+_REQUESTER_PATTERNS = _compile([
     r"요구자\s*[:：]?\s*([가-힣]{2,5})",
     r"담당\s*자?\s*[:：]?\s*([가-힣]{2,5})",
     r"([가-힣]{2,5})\s*(?:보좌관|비서관|선임비서관|비서)\b",
-]
+])
 
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
@@ -102,31 +106,25 @@ class ParsedRequest:
     email: str = ""           # 요구자 이메일
 
     def to_dict(self) -> dict:
-        return {
-            "committee": self.committee,
-            "request_date": self.request_date,
-            "deadline": self.deadline,
-            "doc_no": self.doc_no,
-            "member": self.member,
-            "party": self.party,
-            "district": self.district,
-            "items": self.items,
-            "requester": self.requester,
-            "email": self.email,
-        }
+        return asdict(self)
 
 
-def _first_match(patterns: list[str], text: str) -> str:
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _first_match(patterns: list[re.Pattern], text: str, exclude=frozenset()) -> str:
     for pattern in patterns:
-        m = re.search(pattern, text)
-        if m:
-            return re.sub(r"\s+", " ", m.group(1)).strip()
+        for m in pattern.finditer(text):
+            candidate = _norm(m.group(1))
+            if candidate not in exclude:
+                return candidate
     return ""
 
 
-def _first_date(patterns: list[str], text: str, sep: str) -> str:
+def _first_date(patterns: list[re.Pattern], text: str, sep: str) -> str:
     for pattern in patterns:
-        m = re.search(pattern, text)
+        m = pattern.search(text)
         if m:
             y, mo, d = m.group(1), m.group(2), m.group(3)
             return f"{y}{sep}{int(mo):02d}{sep}{int(d):02d}"
@@ -140,7 +138,7 @@ def _extract_items(text: str) -> list[str]:
 
     def flush():
         if current:
-            item = re.sub(r"\s+", " ", " ".join(current)).strip()
+            item = _norm(" ".join(current))
             if len(item) >= 4:
                 items.append(item)
             current.clear()
@@ -188,25 +186,17 @@ def _extract_items(text: str) -> list[str]:
     return items
 
 
-def _match_member(text: str) -> str:
-    for pattern in _MEMBER_PATTERNS:
-        for m in re.finditer(pattern, text):
-            candidate = re.sub(r"\s+", " ", m.group(1)).strip()
-            if candidate not in _MEMBER_BLACKLIST:
-                return candidate
-    return ""
-
-
 def parse_request(text: str) -> ParsedRequest:
+    email_match = _EMAIL_PATTERN.search(text)
     return ParsedRequest(
         committee=_first_match(_COMMITTEE_PATTERNS, text),
         request_date=_first_date(_REQUEST_DATE_PATTERNS, text, "-"),
         deadline=_first_date(_DEADLINE_PATTERNS, text, "."),
         doc_no=_first_match(_DOC_NO_PATTERNS, text),
-        member=_match_member(text),
+        member=_first_match(_MEMBER_PATTERNS, text, exclude=_MEMBER_BLACKLIST),
         party=_first_match(_PARTY_PATTERNS, text),
         district=_first_match(_DISTRICT_PATTERNS, text),
         items=_extract_items(text),
         requester=_first_match(_REQUESTER_PATTERNS, text),
-        email=(_EMAIL_PATTERN.search(text).group(0) if _EMAIL_PATTERN.search(text) else ""),
+        email=email_match.group(0) if email_match else "",
     )

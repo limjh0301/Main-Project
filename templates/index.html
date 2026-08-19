@@ -101,10 +101,10 @@
       </div>
 
       <section class="card">
-        <p class="section-label">요구서 PDF 파일 선택 <span class="muted">(최대 5개)</span></p>
+        <p class="section-label">요구서 PDF 파일 선택 <span class="muted">(최대 {{ max_pdf }}개)</span></p>
         <div class="dropzone dropzone-lg" id="pdf-drop">
           <span class="dz-icon">📄</span>
-          <span id="pdf-drop-text">PDF 파일을 여기에 드래그 하세요.<br><small>클릭하여 선택할 수도 있습니다.</small></span>
+          <span>PDF 파일을 여기에 드래그 하세요.<br><small>클릭하여 선택할 수도 있습니다.</small></span>
         </div>
         <input type="file" id="pdf-input" accept=".pdf" multiple hidden>
         <ul id="pdf-list" class="file-list"></ul>
@@ -136,6 +136,10 @@
       <p class="footer-org">한국과학기술정보연구원 · www.kisti.re.kr</p>
     </footer>
   </main>
+  <script>
+    // 서버가 단일 출처로 관리하는 설정 (업로드 한도, 결과 표시 필드)
+    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "fields": ui_fields, "contentLabel": content_label} | tojson }};
+  </script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

@@ -10,18 +10,34 @@ import re
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from extractor.ledger import LedgerFormatError, append_rows, create_ledger, open_ledger
+from extractor.ledger import (
+    CONTENT_LABEL,
+    LedgerFormatError,
+    UI_FIELDS,
+    append_rows,
+    create_ledger,
+    open_ledger,
+)
 from extractor.parser import parse_request
 from extractor.pdf_text import extract_text, ocr_available
 
+PORT = 5000
+URL = f"http://127.0.0.1:{PORT}"
 MAX_PDF_COUNT = 5
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 RESULT_TTL_SECONDS = 30 * 60  # 결과 엑셀 보관 시간
+CLEANUP_INTERVAL_SECONDS = 5 * 60  # 만료 파일 청소 최소 간격
+DEFAULT_BASE_NAME = "요구자료관리대장"
+
+# 결과 파일명 날짜 접미사: 형식과 제거용 정규식은 항상 함께 수정할 것
+_DATE_SUFFIX_FORMAT = "%y%m%d"
+_DATE_SUFFIX_RE = re.compile(r"_\d{6}$")
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -29,9 +45,21 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 RESULT_DIR = os.path.join(tempfile.gettempdir(), "yogu-results")
 os.makedirs(RESULT_DIR, exist_ok=True)
 
+_last_cleanup = 0.0
+
+
+def _dated_name(base_name: str) -> str:
+    """이전 날짜 접미사를 떼고 오늘 날짜 접미사를 붙인 결과 파일명을 만든다."""
+    base = _DATE_SUFFIX_RE.sub("", base_name)
+    return f"{base}_{date.today():{_DATE_SUFFIX_FORMAT}}.xlsx"
+
 
 def _cleanup_results() -> None:
+    global _last_cleanup
     now = time.time()
+    if now - _last_cleanup < CLEANUP_INTERVAL_SECONDS:
+        return
+    _last_cleanup = now
     for name in os.listdir(RESULT_DIR):
         path = os.path.join(RESULT_DIR, name)
         try:
@@ -43,13 +71,17 @@ def _cleanup_results() -> None:
 
 @app.get("/")
 def index():
-    return render_template("index.html", ocr_available=ocr_available())
+    return render_template(
+        "index.html",
+        ocr_available=ocr_available(),
+        max_pdf=MAX_PDF_COUNT,
+        ui_fields=UI_FIELDS,
+        content_label=CONTENT_LABEL,
+    )
 
 
 @app.post("/process")
 def process():
-    _cleanup_results()
-
     mode = request.form.get("mode", "new")
     force_ocr = request.form.get("force_ocr") == "on"
     pdf_files = [f for f in request.files.getlist("pdfs") if f and f.filename]
@@ -61,6 +93,8 @@ def process():
     for f in pdf_files:
         if not f.filename.lower().endswith(".pdf"):
             return jsonify({"error": f"PDF 파일이 아닙니다: {f.filename}"}), 400
+
+    _cleanup_results()
 
     with tempfile.TemporaryDirectory() as workdir:
         # 관리대장 준비: 기존 파일 사용 또는 새로 생성
@@ -79,36 +113,36 @@ def process():
             except Exception:
                 return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
             base_name = os.path.splitext(os.path.basename(excel_file.filename))[0]
-            # 이전 처리에서 붙은 날짜 접미사(_YYMMDD)는 떼고 오늘 날짜로 갱신
-            base_name = re.sub(r"_\d{6}$", "", base_name)
         else:
             wb = create_ledger()
-            base_name = "요구자료관리대장"
+            base_name = DEFAULT_BASE_NAME
 
-        # PDF별 텍스트 추출 → 파싱 → 행 데이터 구성
-        results = []
-        rows = []
+        # 업로드 파일을 모두 저장한 뒤, 추출(OCR 포함)은 병렬로 수행
+        pdf_paths = []
         for f in pdf_files:
             filename = secure_filename(f.filename) or f"upload-{uuid.uuid4().hex[:8]}.pdf"
             pdf_path = os.path.join(workdir, filename)
             f.save(pdf_path)
-            try:
-                text, method = extract_text(pdf_path, force_ocr=force_ocr)
-            except RuntimeError as e:
-                return jsonify({"error": f"{f.filename}: {e}"}), 422
+            pdf_paths.append(pdf_path)
 
+        try:
+            with ThreadPoolExecutor(max_workers=len(pdf_paths)) as pool:
+                extracted = list(
+                    pool.map(lambda p: extract_text(p, force_ocr=force_ocr), pdf_paths)
+                )
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 422
+
+        results = []
+        rows = []
+        for f, (text, method) in zip(pdf_files, extracted):
             parsed = parse_request(text)
             rows.append(_build_row(parsed))
             results.append({
                 "filename": f.filename,
                 "method": method,
                 "parsed": parsed.to_dict(),
-                "row_count": 1,
-                "text_preview": text.strip()[:800],
             })
-
-        if not rows:
-            return jsonify({"error": "요구서에서 항목을 추출하지 못했습니다. PDF 내용을 확인해 주세요."}), 422
 
         append_rows(wb, rows)
 
@@ -118,27 +152,15 @@ def process():
 
     return jsonify({
         "results": results,
-        "total_rows": len(rows),
         "download_url": f"/download/{result_id}",
-        "download_name": f"{base_name}_{date.today():%y%m%d}.xlsx",
+        "download_name": _dated_name(base_name),
     })
 
 
 def _build_row(parsed) -> dict:
     """요구서 1건을 관리대장 1행으로 만든다. 요구내용 항목은 줄바꿈으로 합친다."""
     content = "\n".join(parsed.items) if parsed.items else "(요구내용 미추출 — 원본 확인 필요)"
-    return {
-        "committee": parsed.committee,
-        "request_date": parsed.request_date,
-        "deadline": parsed.deadline,
-        "doc_no": parsed.doc_no,
-        "member": parsed.member,
-        "party": parsed.party,
-        "district": parsed.district,
-        "content": content,
-        "requester": parsed.requester,
-        "email": parsed.email,
-    }
+    return {**parsed.to_dict(), "content": content}
 
 
 @app.get("/download/<result_id>")
@@ -148,7 +170,7 @@ def download(result_id: str):
     path = os.path.join(RESULT_DIR, f"{result_id}.xlsx")
     if not os.path.isfile(path):
         return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
-    name = request.args.get("name", "요구자료관리대장.xlsx")
+    name = request.args.get("name", f"{DEFAULT_BASE_NAME}.xlsx")
     if not name.lower().endswith(".xlsx"):
         name += ".xlsx"
     return send_file(path, as_attachment=True, download_name=name)
@@ -161,13 +183,13 @@ if __name__ == "__main__":
 
     # 포트가 이미 사용 중인지 먼저 확인해 명확한 안내를 준다
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if sock.connect_ex(("127.0.0.1", 5000)) == 0:
+        if sock.connect_ex(("127.0.0.1", PORT)) == 0:
             print()
-            print("[안내] 포트 5000에서 이미 서버가 실행 중입니다.")
-            print("       브라우저에서 http://127.0.0.1:5000 으로 바로 접속하세요.")
-            webbrowser.open("http://127.0.0.1:5000")
+            print(f"[안내] 포트 {PORT}에서 이미 서버가 실행 중입니다.")
+            print(f"       브라우저에서 {URL} 으로 바로 접속하세요.")
+            webbrowser.open(URL)
             raise SystemExit(0)
 
     # 서버가 뜬 직후 기본 브라우저로 접속 페이지를 자동으로 연다
-    threading.Timer(0.5, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    threading.Timer(0.5, lambda: webbrowser.open(URL)).start()
+    app.run(host="0.0.0.0", port=PORT, debug=False)

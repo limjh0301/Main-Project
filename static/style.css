@@ -373,7 +373,6 @@ body {
 }
 
 @media (max-width: 560px) {
-  .wide-only { display: none; }
   .container { padding-top: 32px; }
   .float-cloud { height: 38px; top: -6px; right: 0; }
   .peek-pin { height: 60px; top: -42px; right: 20px; }

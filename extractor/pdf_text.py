@@ -4,6 +4,7 @@
 2차: 텍스트 레이어가 없거나 빈약한 경우 tesseract OCR로 대체 (스캔본 대응)
 """
 
+import functools
 import logging
 import shutil
 
@@ -18,6 +19,7 @@ OCR_LANG = "kor+eng"
 OCR_CONFIG = "--psm 4"
 
 
+@functools.lru_cache(maxsize=1)
 def ocr_available() -> bool:
     return shutil.which("tesseract") is not None and shutil.which("pdftoppm") is not None
 
