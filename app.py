@@ -22,6 +22,7 @@ from extractor.ledger import (
     UI_FIELDS,
     append_rows,
     create_ledger,
+    enrich_member_fields,
     open_ledger,
 )
 from extractor.parser import parse_request
@@ -136,12 +137,13 @@ def process():
         results = []
         rows = []
         for f, (text, method) in zip(pdf_files, extracted):
-            parsed = parse_request(text)
+            # 요구의원이 국회의원 현황 명단에 있으면 소관위원회·정당·지역구를 명단 값으로 채운다
+            parsed = enrich_member_fields(parse_request(text).to_dict())
             rows.append(_build_row(parsed))
             results.append({
                 "filename": f.filename,
                 "method": method,
-                "parsed": parsed.to_dict(),
+                "parsed": parsed,
             })
 
         append_rows(wb, rows)
@@ -157,10 +159,11 @@ def process():
     })
 
 
-def _build_row(parsed) -> dict:
+def _build_row(parsed: dict) -> dict:
     """요구서 1건을 관리대장 1행으로 만든다. 요구내용 항목은 줄바꿈으로 합친다."""
-    content = "\n".join(parsed.items) if parsed.items else "(요구내용 미추출 — 원본 확인 필요)"
-    return {**parsed.to_dict(), "content": content}
+    items = parsed.get("items") or []
+    content = "\n".join(items) if items else "(요구내용 미추출 — 원본 확인 필요)"
+    return {**parsed, "content": content}
 
 
 @app.get("/download/<result_id>")
