@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from flask import Flask, jsonify, render_template, request, send_file
-from werkzeug.utils import secure_filename
 
 from extractor.ledger import (
     CONTENT_LABEL,
@@ -119,10 +118,11 @@ def process():
             base_name = DEFAULT_BASE_NAME
 
         # 업로드 파일을 모두 저장한 뒤, 추출(OCR 포함)은 병렬로 수행
+        # 원본 파일명 대신 순번으로 저장한다 — 한글 파일명은 secure_filename이
+        # 전부 지워 서로 같은 이름이 되고, 뒤 파일이 앞 파일을 덮어쓴다
         pdf_paths = []
-        for f in pdf_files:
-            filename = secure_filename(f.filename) or f"upload-{uuid.uuid4().hex[:8]}.pdf"
-            pdf_path = os.path.join(workdir, filename)
+        for i, f in enumerate(pdf_files):
+            pdf_path = os.path.join(workdir, f"upload-{i}.pdf")
             f.save(pdf_path)
             pdf_paths.append(pdf_path)
 

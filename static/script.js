@@ -61,20 +61,25 @@ function addPdfs(files) {
   renderPdfList();
 }
 
+// textContent 기반 요소 생성 (사용자 입력을 HTML로 해석하지 않음)
+function el(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
+}
+
 function renderPdfList() {
   pdfList.innerHTML = "";
   pdfFiles.forEach((file, idx) => {
-    const li = document.createElement("li");
-    const name = document.createElement("span");
-    name.textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
-    const del = document.createElement("button");
+    const li = el("li");
+    const del = el("button", "✕");
     del.type = "button";
-    del.textContent = "✕";
     del.addEventListener("click", () => {
       pdfFiles.splice(idx, 1);
       renderPdfList();
     });
-    li.append(name, del);
+    li.append(el("span", `📄 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`), del);
     pdfList.appendChild(li);
   });
   pdfDrop.classList.toggle("has-file", pdfFiles.length > 0);
@@ -147,42 +152,29 @@ function renderResult(json) {
   filesBox.innerHTML = "";
 
   for (const r of json.results) {
-    const div = document.createElement("div");
-    div.className = "result-file";
+    const h3 = el("h3", `📄 ${r.filename}`);
+    h3.appendChild(el("span", r.method === "ocr" ? "OCR 추출" : "텍스트 추출", "badge"));
 
-    const h3 = document.createElement("h3");
-    h3.textContent = `📄 ${r.filename}`;
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = r.method === "ocr" ? "OCR 추출" : "텍스트 추출";
-    h3.appendChild(badge);
-    div.appendChild(h3);
-
-    const table = document.createElement("table");
-    for (const { key, label } of CONFIG.fields) {
-      const value = r.parsed[key];
-      if (!value) continue;
-      const tr = document.createElement("tr");
-      const th = document.createElement("th");
-      th.textContent = label;
-      const td = document.createElement("td");
-      td.textContent = value;
-      tr.append(th, td);
+    const table = el("table");
+    const addRow = (label, td) => {
+      const tr = el("tr");
+      tr.append(el("th", label), td);
       table.appendChild(tr);
+    };
+    for (const { key, label } of CONFIG.fields) {
+      if (r.parsed[key]) addRow(label, el("td", r.parsed[key]));
     }
     if (r.parsed.items.length > 0) {
-      const tr = document.createElement("tr");
-      const th = document.createElement("th");
-      th.textContent = CONFIG.contentLabel;
-      const td = document.createElement("td");
+      const td = el("td");
       r.parsed.items.forEach((item, i) => {
         if (i > 0) td.appendChild(document.createElement("br"));
         td.appendChild(document.createTextNode(item));
       });
-      tr.append(th, td);
-      table.appendChild(tr);
+      addRow(CONFIG.contentLabel, td);
     }
-    div.appendChild(table);
+
+    const div = el("div", "", "result-file");
+    div.append(h3, table);
     filesBox.appendChild(div);
   }
 
