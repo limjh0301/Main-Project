@@ -52,3 +52,49 @@ def test_empty_text():
     parsed = parse_request("")
     assert parsed.doc_no == ""
     assert parsed.items == []
+
+
+ATTACHMENT = """※ 9월 28일(월)까지 제출
+ - 이메일 : test@example.com
+기관 개요
+ 1) 설립근거 및 목적
+ 2) 연도별 재무상태
+  - ①재무상태표
+2. 최근 6년간(2021~2026) 감사 조치 관련
+1) 국회 지적사항 및 조치내역
+ - 결과보고서 별도 제출
+2) 감사원 지적사항
+3) 관련 기준 및 규정, 지침 등 근거 별첨
+3. 소관 법령 목록
+4. 복지포인트 지급 현황
+ 1) 연도별 지급 총액
+ 2) 산하기관 포함 제출
+"""
+
+
+def test_parse_attachment_splits_into_assignable_items():
+    from extractor.parser import parse_attachment
+
+    a = parse_attachment(ATTACHMENT)
+    assert a.notes == ["※ 9월 28일(월)까지 제출", "- 이메일 : test@example.com"]
+    assert a.items == [
+        # 번호 없는 첫 제목(한글 자동 문단번호)은 1번 항목으로 보정
+        "1-1) [기관 개요] 설립근거 및 목적",
+        "1-2) [기관 개요] 연도별 재무상태\n- ①재무상태표",
+        # 상위 항목의 기간 조건을 하위 행마다 붙이고, 조건성 하위 항목은 공통으로 합친다
+        "2-1) [최근 6년간(2021~2026) 감사 조치 관련] 국회 지적사항 및 조치내역\n"
+        "- 결과보고서 별도 제출\n(공통) 관련 기준 및 규정, 지침 등 근거 별첨",
+        "2-2) [최근 6년간(2021~2026) 감사 조치 관련] 감사원 지적사항\n"
+        "(공통) 관련 기준 및 규정, 지침 등 근거 별첨",
+        "3. 소관 법령 목록",
+        # 남는 하위 항목이 하나뿐이면 나누지 않는다
+        "4. 복지포인트 지급 현황\n1) 연도별 지급 총액\n2) 산하기관 포함 제출",
+    ]
+
+
+def test_parse_attachment_treats_unnumbered_heading_before_item_1_as_title():
+    from extractor.parser import parse_attachment
+
+    a = parse_attachment("2026년도 국정감사 공통요구자료\n1. 기관 현황\n2. 예산 현황")
+    assert a.notes == ["2026년도 국정감사 공통요구자료"]
+    assert a.items == ["1. 기관 현황", "2. 예산 현황"]

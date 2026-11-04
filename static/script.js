@@ -1,5 +1,7 @@
 const CONFIG = window.APP_CONFIG;
 const MAX_PDF = CONFIG.maxPdf;
+const MAX_HWP = CONFIG.maxHwp;
+const PREVIEW_ITEMS = 8; // 첨부 항목이 많을 때 결과 미리보기에 보여줄 행 수
 
 const form = document.getElementById("process-form");
 const excelSection = document.getElementById("excel-section");
@@ -39,21 +41,25 @@ function setExcel(file) {
   excelDropText.textContent = `✔ ${file.name}`;
 }
 
-// PDF 선택
+// 요구서 PDF · 첨부 한글파일 선택
 pdfDrop.addEventListener("click", () => pdfInput.click());
 pdfInput.addEventListener("change", () => addPdfs(pdfInput.files));
 setupDrag(pdfDrop, addPdfs);
 
+const isHwp = (file) => /\.hwpx?$/i.test(file.name);
+
 function addPdfs(files) {
   for (const file of files) {
-    if (!/\.pdf$/i.test(file.name)) {
-      showStatus(`PDF 파일이 아닙니다: ${file.name}`, true);
+    if (!/\.(pdf|hwpx?)$/i.test(file.name)) {
+      showStatus(`PDF·한글 파일이 아닙니다: ${file.name}`, true);
       continue;
     }
     if (pdfFiles.some((f) => f.name === file.name && f.size === file.size)) continue;
-    if (pdfFiles.length >= MAX_PDF) {
-      showStatus(`PDF는 최대 ${MAX_PDF}개까지 선택할 수 있습니다.`, true);
-      break;
+    const sameType = pdfFiles.filter((f) => isHwp(f) === isHwp(file)).length;
+    const limit = isHwp(file) ? MAX_HWP : MAX_PDF;
+    if (sameType >= limit) {
+      showStatus(`${isHwp(file) ? "한글 파일" : "PDF"}은 최대 ${limit}개까지 선택할 수 있습니다.`, true);
+      continue;
     }
     pdfFiles.push(file);
   }
@@ -79,7 +85,7 @@ function renderPdfList() {
       pdfFiles.splice(idx, 1);
       renderPdfList();
     });
-    li.append(el("span", `📄 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`), del);
+    li.append(el("span", `${isHwp(file) ? "📎" : "📄"} ${file.name} (${(file.size / 1024).toFixed(0)} KB)`), del);
     pdfList.appendChild(li);
   });
   pdfDrop.classList.toggle("has-file", pdfFiles.length > 0);
@@ -111,7 +117,7 @@ form.addEventListener("submit", async (e) => {
     return;
   }
   if (pdfFiles.length === 0) {
-    showStatus("요구서 PDF 파일을 선택해 주세요.", true);
+    showStatus("요구서 PDF 또는 첨부 한글파일을 선택해 주세요.", true);
     return;
   }
 
@@ -119,7 +125,7 @@ form.addEventListener("submit", async (e) => {
   data.append("mode", mode);
   if (document.getElementById("force-ocr").checked) data.append("force_ocr", "on");
   if (mode === "existing") data.append("excel", excelFile);
-  pdfFiles.forEach((f) => data.append("pdfs", f));
+  pdfFiles.forEach((f) => data.append("docs", f));
 
   submitBtn.disabled = true;
   resultBox.hidden = true;
@@ -144,16 +150,18 @@ function showStatus(message, isError) {
   statusBox.className = `status ${isError ? "error" : "info"}`;
 }
 
+const METHOD_LABEL = { ocr: "OCR 추출", hwp: "한글 첨부" };
+
 function renderResult(json) {
   document.getElementById("result-summary").textContent =
-    `총 ${json.results.length}건의 요구서를 관리대장에 추가했습니다.`;
+    `요구서 ${json.results.length}건, 관리대장 ${json.row_count}행을 추가했습니다.`;
 
   const filesBox = document.getElementById("result-files");
   filesBox.innerHTML = "";
 
   for (const r of json.results) {
     const h3 = el("h3", `📄 ${r.filename}`);
-    h3.appendChild(el("span", r.method === "ocr" ? "OCR 추출" : "텍스트 추출", "badge"));
+    h3.appendChild(el("span", METHOD_LABEL[r.method] || "텍스트 추출", "badge"));
 
     const table = el("table");
     const addRow = (label, td) => {
@@ -164,12 +172,20 @@ function renderResult(json) {
     for (const { key, label } of CONFIG.fields) {
       if (r.parsed[key]) addRow(label, el("td", r.parsed[key]));
     }
-    if (r.parsed.items.length > 0) {
+    if (r.attachments.length > 0) {
+      addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 각각 1행으로 기록`));
+    }
+    if (r.items.length > 0) {
+      // 첨부 항목은 여러 줄이라 첫 줄만 미리 보여준다
       const td = el("td");
-      r.parsed.items.forEach((item, i) => {
+      r.items.slice(0, PREVIEW_ITEMS).forEach((item, i) => {
         if (i > 0) td.appendChild(document.createElement("br"));
-        td.appendChild(document.createTextNode(item));
+        td.appendChild(document.createTextNode(r.attachments.length ? item.split("\n")[0] : item));
       });
+      if (r.items.length > PREVIEW_ITEMS) {
+        td.appendChild(document.createElement("br"));
+        td.appendChild(el("span", `… 외 ${r.items.length - PREVIEW_ITEMS}개 항목 (엑셀에서 확인)`, "muted"));
+      }
       addRow(CONFIG.contentLabel, td);
     }
 

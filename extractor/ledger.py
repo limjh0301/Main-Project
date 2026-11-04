@@ -30,7 +30,7 @@ COLUMNS = [
     ("요구자 이메일", 24, "email"),
     ("담당 부서", 18, None),
     ("제출여부", 10, None),
-    ("비고/메모", 20, None),
+    ("비고/메모", 20, "memo"),
 ]
 
 HEADER = [name for name, _, _ in COLUMNS]

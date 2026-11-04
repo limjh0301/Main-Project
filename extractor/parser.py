@@ -200,3 +200,76 @@ def parse_request(text: str) -> ParsedRequest:
         requester=_first_match(_REQUESTER_PATTERNS, text),
         email=email_match.group(0) if email_match else "",
     )
+
+
+# ---------- 첨부 한글파일(공통요구자료 등) 항목 분리 ----------
+# 최상위 "1. …", 하위 "1) …", 세부 "- …"·"①"·"·" 구조의 질의 목록을 배분 단위(하위 항목)로 나눈다.
+
+_ATT_TOP = re.compile(r"^(\d{1,3})\.\s*(\S.*)$")
+_ATT_SUB = re.compile(r"^\s*(\d{1,2})\)\s*(\S.*)$")
+_ATT_DETAIL_START = ("-", "·", "*", "※", "○", "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩")
+# 별도 자료가 아니라 상위 항목의 제출 조건인 하위 항목 (예: "관련 근거 별첨", "자회사 포함 제출")
+_ATT_CONDITION = re.compile(r"(포함|별첨|첨부|기재)(\s*(제출|요망|바람))?\s*$")
+_ATT_SUBJECT = re.compile(r"현황|내역|목록|명단|결과|실적|리스트")
+
+
+@dataclass
+class ParsedAttachment:
+    notes: list[str] = field(default_factory=list)  # 첫 항목 앞의 제출 안내(※ 제출기한·방법 등)
+    items: list[str] = field(default_factory=list)  # 배분 단위 항목 (관리대장 1행씩)
+
+
+def _is_condition(text: str) -> bool:
+    return bool(_ATT_CONDITION.search(text)) and not _ATT_SUBJECT.search(text)
+
+
+def parse_attachment(text: str) -> ParsedAttachment:
+    notes: list[str] = []
+    tops: list[dict] = []
+    first_numbered = None
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        stripped = line.strip()
+        top = _ATT_TOP.match(line)
+        sub = _ATT_SUB.match(line)
+
+        if top:
+            first_numbered = first_numbered or top.group(1)
+            tops.append({"no": top.group(1), "title": _norm(top.group(2)), "detail": [], "subs": []})
+        elif not tops:
+            if stripped.startswith(_ATT_DETAIL_START) or line[0].isspace() or sub:
+                notes.append(_norm(stripped))
+            else:
+                # 한글 자동 문단번호는 텍스트에 남지 않아 첫 제목이 번호 없이 나올 수 있다
+                tops.append({"no": "", "title": _norm(stripped), "detail": [], "subs": [], "auto": True})
+        elif sub:
+            tops[-1]["subs"].append({"no": sub.group(1), "lines": [_norm(sub.group(2))]})
+        else:
+            target = tops[-1]["subs"][-1]["lines"] if tops[-1]["subs"] else tops[-1]["detail"]
+            target.append(_norm(stripped))
+
+    # 번호 없는 첫 제목은 다음 번호가 2일 때만 1번 항목으로 본다 (아니면 문서 제목)
+    if tops and tops[0].get("auto"):
+        if first_numbered == "2":
+            tops[0]["no"] = "1"
+        else:
+            head = tops.pop(0)
+            notes.extend([head["title"], *head["detail"]])
+
+    items: list[str] = []
+    for t in tops:
+        subs = [s for s in t["subs"] if not (len(s["lines"]) == 1 and _is_condition(s["lines"][0]))]
+        common = t["detail"] + [s["lines"][0] for s in t["subs"] if s not in subs]
+        if len(subs) <= 1:
+            body = [f'{t["no"]}. {t["title"]}']
+            body += [f'{s["no"]}) ' + "\n".join(s["lines"]) for s in t["subs"]]
+            items.append("\n".join(body[:1] + t["detail"] + body[1:]))
+            continue
+        for s in subs:
+            lines = [f'{t["no"]}-{s["no"]}) [{t["title"]}] {s["lines"][0]}', *s["lines"][1:]]
+            lines += [f"(공통) {c}" for c in common]
+            items.append("\n".join(lines))
+    return ParsedAttachment(notes=notes, items=items)
