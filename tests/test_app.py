@@ -85,3 +85,29 @@ def test_unreadable_hwp_returns_error(client):
     res = _post(client, [(io.BytesIO(b"broken"), "깨진파일.hwp")])
     assert res.status_code == 422
     assert "깨진파일.hwp" in res.get_json()["error"]
+
+
+@pytest.mark.parametrize(
+    "filename, deadline, expected",
+    [
+        ("0007999174_자료요구서_260921.pdf", "2026.09.28", "2026-09-21"),
+        ("0007999174_자료요구서_261001.pdf", "2026.09.28", ""),  # 제출기한보다 늦으면 요구일자가 아님
+        ("0007999174_자료요구서_261341.pdf", "", ""),  # 날짜가 아님
+        ("0007999174.pdf", "", ""),  # 요구서번호 끝자리를 날짜로 오인하지 않음
+        ("질의서.pdf", "2026.09.28", ""),
+    ],
+)
+def test_request_date_from_filename(filename, deadline, expected):
+    assert app_module._request_date_from_name(filename, deadline) == expected
+
+
+def test_request_date_falls_back_to_filename_only_when_missing(client):
+    no_date = (io.BytesIO("요구서번호 : 0007999174\n제출기한 : 2026.09.28".encode()), "0007999174_자료요구서_260921.pdf")
+    with_date = (
+        io.BytesIO("요구서번호 : 0001112223\n요구일자 : 2026. 9. 15\n제출기한 : 2026.09.28".encode()),
+        "0001112223_자료요구서_260921.pdf",
+    )
+    body = _post(client, [no_date, with_date]).get_json()
+    assert [r["parsed"]["request_date"] for r in body["results"]] == ["2026-09-21", "2026-09-15"]
+    ws = _download(client, body)
+    assert ws.cell(row=2, column=3).value == "2026-09-21"

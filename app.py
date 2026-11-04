@@ -43,6 +43,8 @@ _DATE_SUFFIX_FORMAT = "%y%m%d"
 _DATE_SUFFIX_RE = re.compile(r"_\d{6}$")
 # 의정자료전자유통시스템 첨부파일명은 요구서번호(10자리)로 시작한다
 _DOC_NO_IN_NAME = re.compile(r"(?<!\d)\d{10}(?!\d)")
+# 질의서 PDF 파일명은 요구일자(YYMMDD)로 끝난다 — 질의서 본문에는 요구일자가 인쇄되지 않는다
+_REQUEST_DATE_IN_NAME = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})$")
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -161,6 +163,10 @@ def process():
 
         # 요구의원이 국회의원 현황 명단에 있으면 소관위원회·정당·지역구를 명단 값으로 채운다
         parsed_list = [enrich_member_fields(parse_request(text).to_dict()) for text, _ in extracted]
+        for f, parsed in zip(pdf_files, parsed_list):
+            parsed["request_date"] = parsed["request_date"] or _request_date_from_name(
+                f.filename, parsed["deadline"]
+            )
 
         linked = [[] for _ in pdf_files]
         standalone = []
@@ -199,6 +205,20 @@ def process():
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
     })
+
+
+def _request_date_from_name(filename: str, deadline: str) -> str:
+    """파일명 끝의 YYMMDD를 요구일자(YYYY-MM-DD)로 읽는다. 날짜가 아니거나 제출기한보다 늦으면 빈 값."""
+    m = _REQUEST_DATE_IN_NAME.search(os.path.splitext(filename)[0])
+    if not m:
+        return ""
+    try:
+        d = date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return ""
+    if deadline and f"{d:%Y.%m.%d}" > deadline:
+        return ""
+    return d.isoformat()
 
 
 def _match_request(filename: str, parsed_list: list[dict]) -> int | None:
