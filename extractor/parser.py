@@ -204,9 +204,12 @@ def parse_request(text: str) -> ParsedRequest:
 
 # ---------- 첨부 한글파일(공통요구자료 등) 항목 분리 ----------
 # 최상위 "1. …", 하위 "1) …", 세부 "- …"·"①"·"·" 구조의 질의 목록을 배분 단위(하위 항목)로 나눈다.
+# 한글 자동 문단번호는 텍스트에 남지 않으므로, 번호 없는 목록은 들여쓰지 않은 줄 하나를 항목 하나로 본다.
+# "<연구기관>" 같은 섹션 제목이 있으면 섹션마다 번호를 새로 매기고 항목 앞에 섹션명을 붙인다.
 
-_ATT_TOP = re.compile(r"^(\d{1,3})\.\s*(\S.*)$")
+_ATT_TOP = re.compile(r"^(\d{1,3})[.,]\s*(\S.*)$")  # "6," 같은 번호 오타 허용
 _ATT_SUB = re.compile(r"^\s*(\d{1,2})\)\s*(\S.*)$")
+_ATT_SECTION = re.compile(r"^<\s*(.+?)\s*>$")
 _ATT_DETAIL_START = ("-", "·", "*", "※", "○", "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩")
 # 별도 자료가 아니라 상위 항목의 제출 조건인 하위 항목 (예: "관련 근거 별첨", "자회사 포함 제출")
 _ATT_CONDITION = re.compile(r"(포함|별첨|첨부|기재)(\s*(제출|요망|바람))?\s*$")
@@ -223,53 +226,72 @@ def _is_condition(text: str) -> bool:
     return bool(_ATT_CONDITION.search(text)) and not _ATT_SUBJECT.search(text)
 
 
+def _is_bullet(stripped: str) -> bool:
+    return stripped.startswith(_ATT_DETAIL_START)
+
+
 def parse_attachment(text: str) -> ParsedAttachment:
+    lines = [raw.rstrip() for raw in text.splitlines() if raw.strip()]
     notes: list[str] = []
     tops: list[dict] = []
-    first_numbered = None
 
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        if not line.strip():
-            continue
+    # 문서 앞머리: 제목 한 줄(바로 뒤에 안내 글머리가 올 때)과 안내 글머리 묶음
+    i = 0
+    if len(lines) > 1 and not _ATT_TOP.match(lines[0]) and not _is_bullet(lines[0].strip()) \
+            and _is_bullet(lines[1].strip()):
+        notes.append(_norm(lines[0]))
+        i = 1
+    while i < len(lines) and _is_bullet(lines[i].strip()) and not _ATT_SUB.match(lines[i]):
+        notes.append(_norm(lines[i].strip()))
+        i += 1
+
+    section, count = "", 0
+    for line in lines[i:]:
         stripped = line.strip()
-        top = _ATT_TOP.match(line)
-        sub = _ATT_SUB.match(line)
+        sec = _ATT_SECTION.match(stripped)
+        if sec:
+            section, count = sec.group(1), 0
+            continue
+        top, sub = _ATT_TOP.match(line), _ATT_SUB.match(line)
+        cur = [t for t in tops if t["section"] == section]
 
         if top:
-            first_numbered = first_numbered or top.group(1)
-            tops.append({"no": top.group(1), "title": _norm(top.group(2)), "detail": [], "subs": []})
-        elif not tops:
-            if stripped.startswith(_ATT_DETAIL_START) or line[0].isspace() or sub:
-                notes.append(_norm(stripped))
+            # 번호 없는 제목 하나 바로 뒤에 1번이 오면 그 제목은 문서 제목이다
+            if top.group(1) == "1" and len(cur) == 1 and cur[0]["auto"] \
+                    and not cur[0]["detail"] and not cur[0]["subs"]:
+                tops.remove(cur[0])
+                notes.append(cur[0]["title"])
+            count = int(top.group(1))
+            tops.append({"no": top.group(1), "title": _norm(top.group(2)), "detail": [], "subs": [],
+                         "section": section, "auto": False})
+        elif sub and cur:
+            cur[-1]["subs"].append({"no": sub.group(1), "lines": [_norm(sub.group(2))]})
+        elif _is_bullet(stripped) or line[0].isspace() or sub:
+            if cur:
+                target = cur[-1]["subs"][-1]["lines"] if cur[-1]["subs"] else cur[-1]["detail"]
+                target.append(_norm(stripped))
             else:
-                # 한글 자동 문단번호는 텍스트에 남지 않아 첫 제목이 번호 없이 나올 수 있다
-                tops.append({"no": "", "title": _norm(stripped), "detail": [], "subs": [], "auto": True})
-        elif sub:
-            tops[-1]["subs"].append({"no": sub.group(1), "lines": [_norm(sub.group(2))]})
+                notes.append(_norm(stripped))
+        elif not cur or cur[-1]["auto"]:
+            count += 1
+            tops.append({"no": str(count), "title": _norm(stripped), "detail": [], "subs": [],
+                         "section": section, "auto": True})
         else:
-            target = tops[-1]["subs"][-1]["lines"] if tops[-1]["subs"] else tops[-1]["detail"]
-            target.append(_norm(stripped))
-
-    # 번호 없는 첫 제목은 다음 번호가 2일 때만 1번 항목으로 본다 (아니면 문서 제목)
-    if tops and tops[0].get("auto"):
-        if first_numbered == "2":
-            tops[0]["no"] = "1"
-        else:
-            head = tops.pop(0)
-            notes.extend([head["title"], *head["detail"]])
+            # 번호 목록 중간의 번호 없는 줄은 앞 항목에 이어지는 내용이다
+            cur[-1]["detail"].append(_norm(stripped))
 
     items: list[str] = []
     for t in tops:
+        title = f'[{t["section"]}] {t["title"]}' if t["section"] else t["title"]
         subs = [s for s in t["subs"] if not (len(s["lines"]) == 1 and _is_condition(s["lines"][0]))]
         common = t["detail"] + [s["lines"][0] for s in t["subs"] if s not in subs]
         if len(subs) <= 1:
-            body = [f'{t["no"]}. {t["title"]}']
+            body = [f'{t["no"]}. {title}']
             body += [f'{s["no"]}) ' + "\n".join(s["lines"]) for s in t["subs"]]
             items.append("\n".join(body[:1] + t["detail"] + body[1:]))
             continue
         for s in subs:
-            lines = [f'{t["no"]}-{s["no"]}) [{t["title"]}] {s["lines"][0]}', *s["lines"][1:]]
-            lines += [f"(공통) {c}" for c in common]
-            items.append("\n".join(lines))
+            lines_ = [f'{t["no"]}-{s["no"]}) [{title}] {s["lines"][0]}', *s["lines"][1:]]
+            lines_ += [f"(공통) {c}" for c in common]
+            items.append("\n".join(lines_))
     return ParsedAttachment(notes=notes, items=items)

@@ -98,3 +98,27 @@ def test_parse_attachment_treats_unnumbered_heading_before_item_1_as_title():
     a = parse_attachment("2026년도 국정감사 공통요구자료\n1. 기관 현황\n2. 예산 현황")
     assert a.notes == ["2026년도 국정감사 공통요구자료"]
     assert a.items == ["1. 기관 현황", "2. 예산 현황"]
+
+
+def test_parse_attachment_auto_numbered_list_with_sections():
+    from extractor.parser import parse_attachment
+
+    text = (
+        "공통 자료요청\n* 26.6월 말 기준으로 작성\n"
+        "직제표 (연락처, 담당업무 포함)\n"
+        "(최근3년간) 문서 수발신 목록\n* (순번, 일자, 제목)\n"
+        "<연구기관>\n1. 기관평가 현황\n2. (최근5년간) 특허 현황\n"
+        "<학교(과기원 등)>\n1. 등록금 집행현황\n6, (최근5년간) 산학협력단 회계\n"
+    )
+    a = parse_attachment(text)
+    assert a.notes == ["공통 자료요청", "* 26.6월 말 기준으로 작성"]
+    assert a.items == [
+        # 한글 자동 번호(텍스트에 번호 없음)는 줄마다 항목으로 보고 순번을 매긴다
+        "1. 직제표 (연락처, 담당업무 포함)",
+        "2. (최근3년간) 문서 수발신 목록\n* (순번, 일자, 제목)",
+        # 섹션마다 번호가 새로 시작하고 섹션명이 붙는다
+        "1. [연구기관] 기관평가 현황",
+        "2. [연구기관] (최근5년간) 특허 현황",
+        "1. [학교(과기원 등)] 등록금 집행현황",
+        "6. [학교(과기원 등)] (최근5년간) 산학협력단 회계",  # "6," 번호 오타
+    ]
