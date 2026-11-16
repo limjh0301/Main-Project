@@ -7,8 +7,10 @@
 업로드 파일과 결과 엑셀은 처리 후 임시 폴더에서 관리되며 서버에 영구 저장하지 않는다.
 """
 
+import json
 import os
 import re
+import shutil
 import tempfile
 import time
 import uuid
@@ -57,6 +59,8 @@ _member_in_name: re.Pattern | None = None
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+# PC 실행(python app.py · start.bat)에서만 켜는 'PC의 대장에 바로 저장' — 서버 배포(gunicorn)에서는 꺼져 있다
+app.config.setdefault("LOCAL_MODE", False)
 
 RESULT_DIR = os.path.join(tempfile.gettempdir(), "yogu-results")
 os.makedirs(RESULT_DIR, exist_ok=True)
@@ -92,6 +96,7 @@ def index():
         ocr_available=ocr_available(),
         max_pdf=MAX_PDF_COUNT,
         max_hwp=MAX_HWP_COUNT,
+        local_mode=app.config["LOCAL_MODE"],
     )
 
 
@@ -136,6 +141,19 @@ def process():
             except Exception:
                 return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
             base_name = os.path.splitext(os.path.basename(excel_file.filename))[0]
+        elif mode == "local":
+            if not _is_local_request():
+                return jsonify({"error": "PC의 대장에 바로 저장은 이 PC에서 실행한 앱에서만 쓸 수 있습니다."}), 403
+            local_path = _local_ledger_path(request.form.get("local_path", ""))
+            if not local_path:
+                return jsonify({"error": "대장 파일 경로를 확인해 주세요. 있는 엑셀 파일(.xlsx)의 전체 경로여야 합니다."}), 400
+            try:
+                wb = open_ledger(local_path)
+            except LedgerFormatError as e:
+                return jsonify({"error": str(e)}), 400
+            except Exception:
+                return jsonify({"error": "대장 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
+            base_name = os.path.splitext(os.path.basename(local_path))[0]
         else:
             wb = create_ledger()
             base_name = DEFAULT_BASE_NAME
@@ -224,6 +242,10 @@ def process():
         result_id = uuid.uuid4().hex
         out_path = os.path.join(RESULT_DIR, f"{result_id}.xlsx")
         wb.save(out_path)
+        if mode == "local":
+            # 저장 직전에 대장이 그사이 바뀌지 않았는지 확인하려고 처리 시점의 수정 시각을 남긴다
+            with open(_meta_path(result_id), "w", encoding="utf-8") as f:
+                json.dump({"path": local_path, "mtime": os.path.getmtime(local_path)}, f, ensure_ascii=False)
 
     return jsonify({
         "results": results,
@@ -232,7 +254,53 @@ def process():
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
         "board": board.build(board_entries, names, past),
+        "local": {"path": local_path} if mode == "local" else None,
     })
+
+
+def _is_local_request() -> bool:
+    return app.config["LOCAL_MODE"] and request.remote_addr in ("127.0.0.1", "::1")
+
+
+def _local_ledger_path(raw: str) -> str:
+    """PC의 대장 경로 검증: 이미 있는 .xlsx/.xlsm 파일의 절대 경로만 받는다."""
+    path = os.path.abspath(os.path.expanduser(raw.strip().strip('"')))
+    return path if path.lower().endswith((".xlsx", ".xlsm")) and os.path.isfile(path) else ""
+
+
+def _meta_path(result_id: str) -> str:
+    return os.path.join(RESULT_DIR, f"{result_id}.json")
+
+
+@app.post("/save-local/<result_id>")
+def save_local(result_id: str):
+    """결과 대장(날짜·담당자 명단 반영 후)을 PC의 원래 대장 파일에 덮어쓴다. 직전 내용은 _백업.xlsx로 남긴다."""
+    if not _is_local_request():
+        return jsonify({"error": "이 PC에서 실행한 앱에서만 쓸 수 있습니다."}), 403
+    path = _result_path(result_id)
+    if not path or not os.path.isfile(_meta_path(result_id)):
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    with open(_meta_path(result_id), encoding="utf-8") as f:
+        meta = json.load(f)
+    target = meta["path"]
+    if not os.path.isfile(target) or os.path.getmtime(target) != meta["mtime"]:
+        return jsonify({"error": "처리한 뒤에 대장 파일이 바뀌었습니다(엑셀에서 저장했거나 다른 사람이 수정). "
+                                 "덮어쓰지 않았으니 다시 처리해 주세요."}), 409
+    stem, ext = os.path.splitext(target)
+    backup, tmp = f"{stem}_백업{ext}", f"{stem}.저장중{ext}"
+    try:
+        if not meta.get("backed_up"):  # 백업은 이번 처리 전의 원본 한 번만 (다시 저장해도 원본 백업 유지)
+            shutil.copy2(target, backup)
+        shutil.copyfile(path, tmp)
+        os.replace(tmp, target)  # 한 번에 바꿔 써서 저장 도중 끊겨도 대장이 반쯤 쓰인 채로 남지 않게 한다
+    except PermissionError:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return jsonify({"error": "대장 파일이 엑셀에서 열려 있어 저장하지 못했습니다. 엑셀에서 닫고 다시 눌러 주세요."}), 423
+    meta.update(mtime=os.path.getmtime(target), backed_up=True)  # 날짜·명단을 더 고친 뒤 다시 저장할 수 있게
+    with open(_meta_path(result_id), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+    return jsonify({"saved": target, "backup": backup})
 
 
 def _fill_from_name(parsed: dict, filename: str) -> dict:
@@ -439,5 +507,6 @@ if __name__ == "__main__":
             raise SystemExit(0)
 
     # 서버가 뜬 직후 기본 브라우저로 접속 페이지를 자동으로 연다
+    app.config["LOCAL_MODE"] = True  # PC 실행: 'PC의 대장에 바로 저장' 사용 가능 (이 PC에서 온 요청만)
     threading.Timer(0.5, lambda: webbrowser.open(URL)).start()
     app.run(host="0.0.0.0", port=PORT, debug=False)

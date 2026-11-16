@@ -17,15 +17,28 @@ const submitBtn = document.getElementById("submit-btn");
 let excelFile = null;
 let pdfFiles = [];
 
-// 모드 전환: 새 관리대장 생성 시 엑셀 선택 영역 숨김
+const localPath = document.getElementById("local-path"); // PC 실행(start.bat)일 때만 있음
+const PANELS = { existing: "excel-section", local: "local-section", new: "new-section" };
+const LOCAL_PATH_KEY = "yogu:local-path";
+
+// 모드 전환: 선택한 방식의 안내·입력 영역만 보인다
 document.querySelectorAll('input[name="mode"]').forEach((radio) => {
   radio.addEventListener("change", () => {
-    excelSection.style.display = radio.value === "existing" ? "" : "none";
+    for (const [mode, id] of Object.entries(PANELS)) {
+      const panel = document.getElementById(id);
+      if (panel) panel.hidden = radio.value !== mode;
+    }
   });
 });
+if (localPath) {
+  try { localPath.value = localStorage.getItem(LOCAL_PATH_KEY) || ""; } catch (_) {}
+}
+// 탐색기 '경로로 복사'는 앞뒤에 따옴표가 붙는다
+const cleanPath = (v) => v.trim().replace(/^"(.*)"$/, "$1");
 
 // 엑셀 선택
 excelDrop.addEventListener("click", () => excelInput.click());
+excelDrop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); excelInput.click(); } });
 excelInput.addEventListener("change", () => setExcel(excelInput.files[0]));
 setupDrag(excelDrop, (files) => setExcel(files[0]));
 
@@ -37,11 +50,12 @@ function setExcel(file) {
   }
   excelFile = file;
   excelDrop.classList.add("has-file");
-  excelDropText.textContent = `✔ ${file.name}`;
+  excelDropText.textContent = `${file.name} 선택됨 — 다른 파일을 고르려면 다시 클릭`;
 }
 
 // 요구서 PDF · 첨부 한글파일 선택
 pdfDrop.addEventListener("click", () => pdfInput.click());
+pdfDrop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pdfInput.click(); } });
 pdfInput.addEventListener("change", () => addPdfs(pdfInput.files));
 setupDrag(pdfDrop, addPdfs);
 
@@ -78,13 +92,15 @@ function renderPdfList() {
   pdfList.innerHTML = "";
   pdfFiles.forEach((file, idx) => {
     const li = el("li");
-    const del = el("button", "✕");
+    const del = el("button", "빼기");
     del.type = "button";
+    del.setAttribute("aria-label", `${file.name} 목록에서 빼기`);
     del.addEventListener("click", () => {
       pdfFiles.splice(idx, 1);
       renderPdfList();
     });
-    li.append(el("span", `${isHwp(file) ? "📎" : "📄"} ${file.name} (${(file.size / 1024).toFixed(0)} KB)`), del);
+    li.append(el("span", isHwp(file) ? "한글" : "PDF", "kind"), el("span", file.name, "name"),
+      el("span", `${(file.size / 1024).toFixed(0)} KB`, "size"), del);
     pdfList.appendChild(li);
   });
   pdfDrop.classList.toggle("has-file", pdfFiles.length > 0);
@@ -115,6 +131,11 @@ form.addEventListener("submit", async (e) => {
     showStatus("기존 엑셀 관리대장 파일을 선택해 주세요.", true);
     return;
   }
+  if (mode === "local" && !cleanPath(localPath.value)) {
+    showStatus("대장 파일 경로를 입력해 주세요.", true);
+    localPath.focus();
+    return;
+  }
   if (pdfFiles.length === 0) {
     showStatus("요구서 PDF 또는 첨부 한글파일을 선택해 주세요.", true);
     return;
@@ -124,6 +145,10 @@ form.addEventListener("submit", async (e) => {
   data.append("mode", mode);
   if (document.getElementById("force-ocr").checked) data.append("force_ocr", "on");
   if (mode === "existing") data.append("excel", excelFile);
+  if (mode === "local") {
+    data.append("local_path", cleanPath(localPath.value));
+    try { localStorage.setItem(LOCAL_PATH_KEY, cleanPath(localPath.value)); } catch (_) {}
+  }
   pdfFiles.forEach((f) => data.append("docs", f));
 
   submitBtn.disabled = true;

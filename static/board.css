@@ -1,4 +1,4 @@
-/* 분배안 보드 — 처리 결과 화면. 모든 규칙을 .board 아래로 한정해 업로드 화면 스타일과 섞이지 않게 한다. */
+/* 분배안 보드 — 처리 결과 화면. 색·간격 토큰은 style.css의 :root를 함께 쓰고, 규칙은 .board 아래로 한정한다. */
 .board{max-width:1160px;margin:0 auto;padding:40px 32px 64px;border-top:1px solid var(--line)}
 .board[hidden]{display:none}
 .board .b-head h2{font-size:22px;font-weight:700;letter-spacing:-.02em}
@@ -9,8 +9,6 @@
 .board .prev{margin:2px 0 0;font-size:12.5px;color:var(--t2)}.board .prev b{font-weight:600;color:var(--t1)}
 .board .use-prev{margin-left:4px;padding:0 6px;height:20px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--t2);font-size:12px;cursor:pointer}
 .board .use-prev:hover{border-color:var(--brand);color:var(--brand)}
-.board{--bg:#fff;--bg2:#f6f7f8;--t1:#15171a;--t2:#4b5059;--t3:#8b9098;--line:#e4e6e9;--line2:#eff0f2;--brand:#007dc5;--brand-bg:#eef6fb;--warn:#a85a00;--warn-bg:#fdf6ec;--plan:#0072b2;--hr:#a8509a;--ops:#00876a;--rnd:#c27c00;--audit:#d55e00;--fac:#8c7a00;--sec:#5f6b7a;--lab:#3a8fc4}
-.board[data-theme="dark"]{--bg:#121316;--bg2:#1b1c20;--t1:#eceef2;--t2:#b4b8c0;--t3:#7f848e;--line:#2b2d32;--line2:#222428;--brand:#4ea3dc;--brand-bg:#16283a;--warn:#f0a35b;--warn-bg:#2a2016;--plan:#4ea3dc;--hr:#d48cc4;--ops:#3cbf98;--rnd:#e6a632;--audit:#f08a4b;--fac:#cdb92f;--sec:#9aa5b3;--lab:#7cc0ea}
 .board, .board *{box-sizing:border-box}
 .board{background:var(--bg);color:var(--t1);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:anywhere}
 .board button,.board input,.board select{font:inherit;color:inherit}

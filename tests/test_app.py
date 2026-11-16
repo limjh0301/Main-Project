@@ -279,3 +279,62 @@ def test_board_items_link_previous_questions(client, tmp_path):
                       content_type="multipart/form-data")
     prev = res.get_json()["board"]["items"][0]["prev"]
     assert prev[0]["doc"] == "0001112223" and prev[0]["kind"] == "기간만 다름" and prev[0]["date"] == "2025-09-18"
+
+
+@pytest.fixture
+def local_ledger(tmp_path, monkeypatch):
+    from extractor.ledger import append_rows, create_ledger
+
+    monkeypatch.setitem(app_module.app.config, "LOCAL_MODE", True)
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "content": "[기존]"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    return path
+
+
+def _post_local(client, path, **kw):
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 요구".encode()), "b.pdf")
+    return client.post("/process", data={"mode": "local", "local_path": f'"{path}"', "docs": [pdf]},
+                       content_type="multipart/form-data", **kw)
+
+
+def test_local_mode_hidden_on_server(client, tmp_path):
+    assert "PC의 대장에 바로 저장" not in client.get("/").get_data(as_text=True)
+    assert _post_local(client, tmp_path / "x.xlsx").status_code == 403
+
+
+def test_local_mode_saves_into_pc_ledger_with_backup(client, local_ledger):
+    from openpyxl import load_workbook
+
+    assert "PC의 대장에 바로 저장" in client.get("/").get_data(as_text=True)
+    body = _post_local(client, local_ledger).get_json()
+    assert body["local"] == {"path": str(local_ledger)}
+    rid = body["download_url"].rsplit("/", 1)[1]
+    assert load_workbook(local_ledger).active.max_row == 4  # 저장 전에는 원래 대장 그대로
+
+    res = client.post(f"/save-local/{rid}", json={})
+    assert res.status_code == 200
+    assert [c.value for c in load_workbook(local_ledger).active["B"][3:5]] == ["0001112223", "0004445556"]
+    backup = local_ledger.with_name("대장_백업.xlsx")
+    assert load_workbook(backup).active.max_row == 4
+    assert client.post(f"/save-local/{rid}", json={}).status_code == 200  # 날짜 등을 더 고친 뒤 다시 저장 가능
+    assert load_workbook(backup).active.max_row == 4  # 백업은 처리 전 원본 그대로
+
+
+def test_local_save_refuses_when_ledger_changed(client, local_ledger):
+    import os
+
+    rid = _post_local(client, local_ledger).get_json()["download_url"].rsplit("/", 1)[1]
+    st = os.stat(local_ledger)
+    os.utime(local_ledger, (st.st_atime, st.st_mtime + 5))  # 처리 뒤 엑셀에서 저장한 상황
+    assert client.post(f"/save-local/{rid}", json={}).status_code == 409
+
+
+def test_local_mode_only_from_this_pc(client, local_ledger):
+    res = _post_local(client, local_ledger, environ_base={"REMOTE_ADDR": "10.0.0.5"})
+    assert res.status_code == 403
+
+
+def test_local_mode_rejects_bad_path(client, local_ledger):
+    assert _post_local(client, local_ledger.with_name("없는파일.xlsx")).status_code == 400

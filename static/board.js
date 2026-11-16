@@ -7,7 +7,7 @@
   const keyText = (k) => { const m = String(k).match(/^\[(.+?)\]\s*(.*)$/); return m ? `${m[1]} ${m[2]}` : `${k}번`; };
   const $ = (sel) => root.querySelector(sel);
 
-  let root, D, R, S, KEY, resultId, downloadHref, filter = "all";
+  let root, D, R, S, KEY, resultId, downloadHref, local, filter = "all";
 
   // ---------- 상태 ----------
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (_) {} };
@@ -165,21 +165,32 @@
   }
   const saveRoster = () => post("/roster", R).then((j) => { R = j.roster; });
 
-  async function download(e) {
-    e.preventDefault();
+  // 표에서 고친 접수일자·제출기한을 결과 대장에 반영
+  async function applyDates() {
     const updates = live().filter((r) => r.rows && S.dates[r.tag]).map((r) => {
       const u = { rows: r.rows };
       if (S.dates[r.tag].date) u.request_date = S.dates[r.tag].date;
       if (S.dates[r.tag].due) u.deadline = S.dates[r.tag].due;
       return u;
     }).filter((u) => u.request_date || u.deadline);
-    try { if (updates.length) await post("/dates", { updates }); } catch (err) { toast(err.message); return; }
+    if (updates.length) await post("/dates", { updates });
+  }
+
+  async function download(e, asFile) {
+    e.preventDefault();
+    try { await applyDates(); } catch (err) { toast(err.message); return; }
+    const toFile = asFile || !local;
     const empty = live().filter((r) => !dateOf(r, "due")).length;
-    if (empty && !confirm(`제출기한이 비어 있는 요구서가 ${empty}건 있습니다. 비워 둔 채로 다운로드할까요?`)) {
+    if (empty && !confirm(`제출기한이 비어 있는 요구서가 ${empty}건 있습니다. 비워 둔 채로 ${toFile ? "다운로드" : "저장"}할까요?`)) {
       root.querySelector('.dt[data-f="due"].empty')?.focus();
       return;
     }
-    window.location.href = downloadHref;
+    if (toFile) { window.location.href = downloadHref; return; }
+    // PC 실행: 원래 대장 파일에 바로 저장 (직전 내용은 같은 폴더에 _백업.xlsx)
+    try {
+      const j = await post("/save-local", {});
+      toast(`대장에 저장했습니다 · ${j.saved}`);
+    } catch (err) { toast(err.message); }
   }
 
   // ---------- 담당자 설정 ----------
@@ -300,7 +311,8 @@
     root.addEventListener("change", onChange);
     root.addEventListener("click", onClick);
     $("#b-q").addEventListener("input", apply);
-    $("#b-download").addEventListener("click", download);
+    $("#b-download").addEventListener("click", (e) => download(e, false));
+    $("#b-download-copy").addEventListener("click", (e) => download(e, true));
     $("#b-open-settings").addEventListener("click", () => { $("#b-st-q").value = ""; renderSettings(); $("#b-settings").showModal(); });
     $("#b-st-q").addEventListener("input", filterSettings);
     $("#b-st-save").addEventListener("click", saveSettings);
@@ -317,6 +329,11 @@
       R = { channel: {}, tasks: {}, members: {}, ...D.roster };
       resultId = json.download_url.split("/").pop();
       downloadHref = `${json.download_url}?name=${encodeURIComponent(json.download_name)}`;
+      local = json.local || null;
+      $("#b-download").textContent = local ? "대장에 저장" : "관리대장 다운로드";
+      $("#b-download").title = local ? local.path : "";
+      $("#b-download-copy").hidden = !local;
+      $("#b-download-copy").href = downloadHref;
       KEY = "board:" + D.reqs.map((r) => r.tag).join(",");
       S = { dept: {}, wk: {}, done: {}, src: {}, dates: {} };
       try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v) S = { ...S, ...v }; } catch (_) {}
