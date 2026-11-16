@@ -2,7 +2,8 @@
 
 의정자료전자유통시스템에서 받은 요구서 PDF를 업로드하면 텍스트를 추출(OCR 포함)하고,
 필요한 항목을 파싱해 엑셀 관리대장에 자동으로 누적한다. 질의 항목을 정리한 한글(HWP/HWPX)
-첨부파일을 함께 올리면 해당 질의서에 연결해 첨부의 항목마다 1행씩 기록한다.
+첨부파일을 함께 올리면 해당 질의서에 연결해 첨부의 항목을 질의 내역으로 기록한다.
+요구서 1건 = 관리대장 1행이며, 질의 내역은 한 셀에 줄바꿈으로 넣는다.
 업로드 파일과 결과 엑셀은 처리 후 임시 폴더에서 관리되며 서버에 영구 저장하지 않는다.
 """
 
@@ -40,6 +41,7 @@ MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 RESULT_TTL_SECONDS = 30 * 60  # 결과 엑셀 보관 시간
 CLEANUP_INTERVAL_SECONDS = 5 * 60  # 만료 파일 청소 최소 간격
 DEFAULT_BASE_NAME = "요구자료관리대장"
+EXCEL_CELL_LIMIT = 32767  # 엑셀 한 셀에 들어가는 최대 글자 수
 
 # 결과 파일명 날짜 접미사: 형식과 제거용 정규식은 항상 함께 수정할 것
 _DATE_SUFFIX_FORMAT = "%y%m%d"
@@ -190,16 +192,16 @@ def process():
         rows, results = [], []
         first_row = next_row(wb)
         for f, method, parsed, atts in entries:
-            new_rows = _build_rows(parsed, [a for _, a in atts])
-            rows.extend(new_rows)
+            row, items = _build_row(parsed, [a for _, a in atts])
+            rows.append(row)
             results.append({
-                # 제출기한을 나중에 입력받아 이 행 범위에 채운다
-                "rows": [first_row + len(rows) - len(new_rows), first_row + len(rows) - 1],
+                # 제출기한을 나중에 입력받아 이 행에 채운다 (API는 행 범위를 받음)
+                "rows": [first_row + len(rows) - 1] * 2,
                 "filename": f.filename,
                 "method": method,
                 "parsed": parsed,
                 "attachments": [af.filename for af, _ in atts],
-                "items": [r["content"] for r in new_rows],
+                "items": items,
             })
 
         append_rows(wb, rows)
@@ -272,22 +274,28 @@ def _match_request(filename: str, parsed_list: list[dict]) -> int | None:
     return 0 if len(parsed_list) == 1 else None
 
 
-def _build_rows(parsed: dict, attachments: list) -> list[dict]:
-    """요구서 1건을 관리대장 행으로 만든다. 첨부 한글파일이 있으면 첨부의 항목마다 1행."""
-    if not attachments:
-        items = parsed.get("items") or []
-        content = "\n".join(items) if items else "(요구내용 미추출 — 원본 확인 필요)"
-        return [{**parsed, "content": content}]
+_TRUNCATED = "\n… (엑셀 한 칸 글자 수 한도로 이하 생략 — 원본 확인)"
 
-    notes = "\n".join(n for a in attachments for n in a.notes)
-    items = [item for a in attachments for item in a.items]
-    if not items:
-        return [{**parsed, "content": notes or "(첨부 항목 미추출 — 원본 확인 필요)"}]
-    # 제출기한·제출방법 등 첨부 앞머리의 안내는 첫 행 비고에만 적는다
-    return [
-        {**parsed, "content": item, "memo": f"[첨부 안내]\n{notes}" if i == 0 and notes else ""}
-        for i, item in enumerate(items)
-    ]
+
+def _build_row(parsed: dict, attachments: list) -> tuple[dict, list[str]]:
+    """요구서 1건을 관리대장 1행으로 만든다. 질의 내역은 한 셀에 줄바꿈으로 넣는다.
+
+    첨부 한글파일이 있으면 첨부의 항목이 질의 내역이 되고, 첨부 앞머리의 안내
+    (제출기한·제출방법 등)는 비고에 적는다. (행, 질의 목록)을 반환한다.
+    """
+    memo = ""
+    if attachments:
+        items = [item for a in attachments for item in a.items]
+        notes = "\n".join(n for a in attachments for n in a.notes)
+        if items and notes:
+            memo = f"[첨부 안내]\n{notes}"
+        content = "\n".join(items) or notes or "(첨부 항목 미추출 — 원본 확인 필요)"
+    else:
+        items = parsed.get("items") or []
+        content = "\n".join(items) or "(요구내용 미추출 — 원본 확인 필요)"
+    if len(content) > EXCEL_CELL_LIMIT:
+        content = content[: EXCEL_CELL_LIMIT - len(_TRUNCATED)] + _TRUNCATED
+    return {**parsed, "content": content, "memo": memo}, items
 
 
 _DEADLINE_INPUT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")

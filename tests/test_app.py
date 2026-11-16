@@ -56,7 +56,7 @@ def test_hwp_attachment_links_to_request_by_doc_no(client, make_hwpx):
     res = _post(client, [other, pdf, (open(hwpx, "rb"), hwpx.name)])
     assert res.status_code == 200
     body = res.get_json()
-    assert body["row_count"] == 4  # 다른 질의서 1행 + 첨부 항목 3행
+    assert body["row_count"] == 2  # 요구서 1건 = 1행
     linked = body["results"][1]
     assert linked["attachments"] == [hwpx.name]
     assert [i.split("\n")[0] for i in linked["items"]] == [
@@ -64,11 +64,13 @@ def test_hwp_attachment_links_to_request_by_doc_no(client, make_hwpx):
     ]
 
     ws = _download(client, body)
-    assert [ws.cell(row=r, column=1).value for r in range(2, 6)] == [
-        "0001112223", "0007999174", "0007999174", "0007999174",
+    assert [ws.cell(row=r, column=1).value for r in (2, 3)] == ["0001112223", "0007999174"]
+    assert ws.max_row == 3
+    # 질의 내역은 한 칸에 줄바꿈으로
+    assert ws.cell(row=3, column=8).value.split("\n") == [
+        "1-1) [기관 개요] 설립근거", "1-2) [기관 개요] 주요 연혁", "2. 사업 현황",
     ]
     assert ws.cell(row=3, column=13).value == "[첨부 안내]\n※ 9월 28일(월)까지 제출"
-    assert ws.cell(row=4, column=13).value in ("", None)  # 안내는 첫 행에만
 
 
 def test_hwp_without_matching_request_is_recorded_alone(client, make_hwpx):
@@ -78,7 +80,8 @@ def test_hwp_without_matching_request_is_recorded_alone(client, make_hwpx):
     body = res.get_json()
     assert body["results"][0]["method"] == "hwp"
     assert body["results"][0]["parsed"]["doc_no"] == "0005556667"
-    assert body["row_count"] == 2
+    assert body["results"][0]["items"] == ["1. 기관 현황", "2. 예산 현황"]
+    assert body["row_count"] == 1
 
 
 def test_unreadable_hwp_returns_error(client):
@@ -151,13 +154,13 @@ def test_deadline_input_fills_only_target_empty_rows(client, make_hwpx):
     no_deadline = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
     body = _post(client, [with_deadline, (open(no_deadline, "rb"), no_deadline.name)]).get_json()
     target = body["results"][1]
-    assert target["rows"] == [3, 4] and not target["parsed"]["deadline"]
+    assert target["rows"] == [3, 3] and not target["parsed"]["deadline"]
 
     rid = body["download_url"].rsplit("/", 1)[1]
     res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": target["rows"], "deadline": "2026-10-02"}]})
-    assert res.status_code == 200 and res.get_json()["filled"] == 2
+    assert res.status_code == 200 and res.get_json()["filled"] == 1
     ws = _download(client, body)
-    assert [ws.cell(row=r, column=4).value for r in (2, 3, 4)] == ["2026.09.28", "2026.10.02", "2026.10.02"]
+    assert [ws.cell(row=r, column=4).value for r in (2, 3)] == ["2026.09.28", "2026.10.02"]
 
 
 @pytest.mark.parametrize("deadline", ["2026.10.02", "2026-02-30", ""])
@@ -170,3 +173,11 @@ def test_deadline_input_rejects_bad_dates(client, deadline):
 
 def test_deadline_input_unknown_result(client):
     assert client.post("/deadline/abc123", json={"deadlines": []}).status_code == 404
+
+
+def test_very_long_request_is_cut_to_excel_cell_limit():
+    items = [f"{i}. " + "가" * 500 for i in range(1, 80)]  # 약 4만 자
+    row, got = app_module._build_row({"items": items}, [])
+    assert got == items
+    assert len(row["content"]) == app_module.EXCEL_CELL_LIMIT
+    assert row["content"].endswith("원본 확인)")

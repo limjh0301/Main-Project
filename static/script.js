@@ -184,7 +184,7 @@ function renderResult(json) {
       }
     }
     if (r.attachments.length > 0) {
-      addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 각각 1행으로 기록`));
+      addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 한 칸에 줄바꿈으로 기록`));
     }
     if (r.items.length > 0) {
       // 첨부 항목은 여러 줄이라 첫 줄만 미리 보여준다
