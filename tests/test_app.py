@@ -152,7 +152,7 @@ def test_filename_fills_missing_fields_and_member_lookup(client, make_hwpx):
     assert h["from_name"] == ["doc_no", "request_date", "member"]
 
 
-def test_deadline_input_fills_only_target_empty_rows(client, make_hwpx):
+def test_date_input_fills_target_row(client, make_hwpx):
     with_deadline = (io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.09.28\n1. 별도 요구".encode()), "a.pdf")
     no_deadline = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
     body = _post(client, [with_deadline, (open(no_deadline, "rb"), no_deadline.name)]).get_json()
@@ -160,27 +160,29 @@ def test_deadline_input_fills_only_target_empty_rows(client, make_hwpx):
     assert target["rows"] == [5, 5] and not target["parsed"]["deadline"]
 
     rid = body["download_url"].rsplit("/", 1)[1]
-    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": target["rows"], "deadline": "2026-10-02"}]})
-    assert res.status_code == 200 and res.get_json()["filled"] == 1
+    res = client.post(f"/dates/{rid}", json={"updates": [
+        {"rows": target["rows"], "deadline": "2026-10-02", "request_date": "2026-09-21"}]})
+    assert res.status_code == 200 and res.get_json()["filled"] == 2
     ws = _download(client, body)
     assert [ws.cell(row=r, column=4).value for r in (4, 5)] == [datetime(2026, 9, 28), datetime(2026, 10, 2)]
+    assert ws.cell(row=5, column=3).value == datetime(2026, 9, 21)
 
 
 @pytest.mark.parametrize("deadline", ["2026.10.02", "2026-02-30", ""])
-def test_deadline_input_rejects_bad_dates(client, deadline):
+def test_date_input_rejects_bad_dates(client, deadline):
     body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
     rid = body["download_url"].rsplit("/", 1)[1]
-    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": [4, 4], "deadline": deadline}]})
+    res = client.post(f"/dates/{rid}", json={"updates": [{"rows": [4, 4], "deadline": deadline}]})
     assert res.status_code == 400
 
 
-def test_deadline_input_unknown_result(client):
-    assert client.post("/deadline/abc123", json={"deadlines": []}).status_code == 404
+def test_date_input_unknown_result(client):
+    assert client.post("/dates/abc123", json={"updates": []}).status_code == 404
 
 
 def test_very_long_request_is_cut_to_excel_cell_limit():
     items = [f"{i}. " + "가" * 500 for i in range(1, 80)]  # 약 4만 자
-    row, got = app_module._build_row({"items": items}, [])
+    row, got, _ = app_module._build_row({"items": items}, [])
     assert got == items
     assert len(row["content"]) == app_module.EXCEL_CELL_LIMIT
     assert row["content"].endswith("원본 확인)")
@@ -226,3 +228,39 @@ def test_existing_ledger_skips_recorded_requests(client, tmp_path):
     ws = _download(client, body)
     assert [ws.cell(row=r, column=1).value for r in (4, 5)] == [1, 2]
     assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0004445556"]
+
+
+def test_board_payload_with_roster_from_ledger(client, tmp_path, make_hwpx):
+    from extractor import roster
+    from extractor.ledger import create_ledger
+
+    wb = create_ledger()
+    roster.write(wb, {"channel": {"감사부": "김감사"}, "tasks": {}, "members": {}})
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 복무점검 실시 현황\n2. 법률자문 현황".encode()), "a.pdf")
+    hwpx = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 직제표", "<학교(과기원 등)>", "1. 학생 현황"])
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"),
+                                        "docs": [pdf, (open(hwpx, "rb"), hwpx.name)]},
+                      content_type="multipart/form-data")
+    b = res.get_json()["board"]
+    assert b["roster"]["channel"] == {"감사부": "김감사"}
+    assert [(r["tag"], r["title"], r["n"]) for r in b["reqs"]] == [
+        ("0001112223", "병가 현황", 2), ("0005556667", "공통요구자료", 2)]
+    assert [(i["id"], i["dept"]) for i in b["items"]] == [
+        ("0001112223|1", "감사부"), ("0001112223|2", "총무구매실"),
+        ("0005556667|1", "기획실"), ("0005556667|[학교(과기원 등)] 1", "해당없음")]
+
+
+def test_roster_endpoint_writes_sheet_into_result(client):
+    from extractor import roster
+
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    res = client.post(f"/roster/{rid}", json={"channel": {"기획실": "홍길동"}, "tasks": {}, "members": {}})
+    assert res.status_code == 200
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(client.get(body["download_url"]).data))
+    assert roster.read(wb)["channel"] == {"기획실": "홍길동"}
+    assert client.post(f"/roster/{rid}", json=[1]).status_code == 400

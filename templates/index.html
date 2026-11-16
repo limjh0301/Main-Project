@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
 </head>
 <body>
   <nav class="topbar">
@@ -123,23 +124,58 @@
     </form>
 
     <section id="status" class="status" hidden></section>
+  </main>
 
-    <section id="result" class="card result" hidden>
-      <h2>처리 결과</h2>
-      <div id="result-summary"></div>
-      <div id="result-files"></div>
-      <a id="download-link" class="download-btn" href="#">📥 관리대장 엑셀 다운로드</a>
-    </section>
+  <!-- 처리 결과: 분배안 보드 -->
+  <section id="board" class="board" hidden aria-labelledby="b-title">
+    <header class="b-head">
+      <div>
+        <h2 id="b-title">처리 결과 · 분배안</h2>
+        <p class="b-summary" id="b-summary"></p>
+        <p class="b-hint" id="b-noroster" hidden>담당자 명단이 없습니다. '담당자 설정'에서 입력하면 다운로드하는 대장에 함께 저장되어 다음부터 자동으로 채워집니다.</p>
+      </div>
+      <div class="b-actions">
+        <button type="button" class="btn" id="b-open-settings">담당자 설정</button>
+        <a class="btn primary" id="b-download" href="#">관리대장 다운로드</a>
+      </div>
+    </header>
+    <table class="reqs"><thead><tr><th>요구서 번호</th><th>제목</th><th>요구의원</th><th>접수일자</th><th>제출기한</th><th class="num">질의</th></tr></thead><tbody id="b-reqs"></tbody></table>
+    <p class="b-hint" id="b-empty-all" hidden>배분할 질의가 없습니다.</p>
+    <div class="layout">
+      <aside aria-label="부서 목록" id="b-nav"></aside>
+      <div class="b-main">
+        <div class="bar">
+          <div class="tools"><input id="b-q" placeholder="질의, 부서, 담당자 검색" aria-label="검색">
+            <div class="seg" role="group" aria-label="보기"><button type="button" class="on" data-f="all">전체</button><button type="button" data-f="amb">확인 필요 <b>0</b></button><button type="button" data-f="dup">같은 질의 <b>0</b></button><button type="button" data-f="done">기제출 <b>0</b></button><button type="button" data-f="moved">변경 <b>0</b></button></div></div>
+          <p class="hint"><span>부서를 고르면 그 부서원 중에서 담당자를 고를 수 있습니다 · 기제출 체크 시 요청문에서 제외 · 질의별 수정은 이 브라우저에만 저장</span><button type="button" class="linkbtn" id="b-reset">수정 초기화</button></p>
+          <div class="colhead" aria-hidden="true"><span>번호</span><span>기간</span><span>질의</span><span>부서 · 담당자</span><span>기제출</span></div>
+        </div>
+        <div id="b-sections"></div>
+        <p id="b-empty" class="empty hide">조건에 맞는 질의가 없습니다.</p>
+        <details class="na" id="b-na"></details>
+      </div>
+    </div>
+    <div id="b-toast" class="toast" role="status" aria-live="polite"></div>
+    <dialog id="b-settings" aria-labelledby="b-st-h"><form method="dialog" class="st">
+      <div class="st-head"><h2 id="b-st-h">담당자 설정</h2>
+        <p class="t3">창구 담당자·업무별 담당자·부서원을 고치면 분배안에 바로 반영되고, 다운로드하는 대장의 '부서별 담당자' 시트에 저장됩니다. 엑셀에서 그 시트를 직접 고쳐도 됩니다.</p>
+        <input id="b-st-q" placeholder="부서, 이름, 업무 검색" aria-label="설정 검색"></div>
+      <div class="st-body" id="b-st-body"></div>
+      <div class="st-foot"><span></span><button class="btn" value="cancel">취소</button><button type="button" class="btn primary" id="b-st-save">저장</button></div>
+    </form></dialog>
+  </section>
 
+  <div class="container">
     <footer class="footer">
       <img src="{{ url_for('static', filename='img/kisti-ci.svg') }}" alt="KISTI" class="footer-logo">
       <p class="footer-org">한국과학기술정보연구원 · www.kisti.re.kr</p>
     </footer>
-  </main>
+  </div>
   <script>
-    // 서버가 단일 출처로 관리하는 설정 (업로드 한도, 결과 표시 필드)
-    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp, "fields": ui_fields, "contentLabel": content_label} | tojson }};
+    // 서버가 단일 출처로 관리하는 설정 (업로드 한도)
+    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp} | tojson }};
   </script>
+  <script src="{{ url_for('static', filename='board.js') }}"></script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

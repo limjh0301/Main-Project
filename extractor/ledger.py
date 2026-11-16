@@ -39,10 +39,6 @@ _COL = {key: i + 1 for i, key in enumerate(_KEYS) if key}
 _DATE_KEYS = ("request_date", "deadline")
 _DATE_FORMAT = "mm-dd-yy"
 
-# 프론트 결과 미리보기가 사용할 (키, 라벨) 목록 — COLUMNS가 단일 출처
-UI_FIELDS = [{"key": key, "label": name} for name, _, key in COLUMNS if key and key not in ("seq", "content")]
-CONTENT_LABEL = HEADER[_COL["content"] - 1]
-
 # 행 높이: 줄당 12pt (엑셀 최대 409.5pt). 내용 칸 한 줄에 들어가는 글자 폭(한글 2, 그 외 1)
 _LINE_HEIGHT, _MIN_HEIGHT, _MAX_HEIGHT, _LINE_WIDTH = 12, 24, 409.5, 140
 
@@ -243,14 +239,18 @@ def append_rows(wb, rows: list[dict]) -> int:
     return len(rows)
 
 
-def fill_deadline(wb, first: int, last: int, deadline) -> int:
-    """관리대장 first~last 행 중 제출기한이 빈 칸에 제출기한을 적고, 적은 칸 수를 반환한다."""
+def fill_dates(wb, first: int, last: int, key: str, value) -> int:
+    """관리대장 first~last 행의 접수일자(request_date)·제출기한(deadline) 칸에 날짜를 적고, 적은 칸 수를 반환한다.
+
+    결과 화면에서 사용자가 직접 입력·수정한 값이므로 기존 값을 덮어쓴다.
+    """
+    if key not in _DATE_KEYS:
+        raise ValueError(key)
     ws, header_row = _locate(wb)
-    col, filled = _COL["deadline"], 0
+    col, filled = _COL[key], 0
     for row_idx in range(max(first, header_row + 1), last + 1):
         cell = ws.cell(row=row_idx, column=col)
-        if cell.value in (None, ""):
-            cell.value = _to_date(deadline)
-            cell.number_format = _DATE_FORMAT
-            filled += 1
+        cell.value = _to_date(value)
+        cell.number_format = _DATE_FORMAT
+        filled += 1
     return filled

@@ -10,7 +10,7 @@ from extractor.ledger import (
     create_ledger,
     enrich_member_fields,
     existing_doc_nos,
-    fill_deadline,
+    fill_dates,
     next_row,
     open_ledger,
 )
@@ -114,12 +114,14 @@ def test_open_ledger_rejects_wrong_header(tmp_path):
         open_ledger(str(path))
 
 
-def test_fill_deadline_only_empty_cells():
+def test_fill_dates_overwrites_target_rows_only():
     wb = create_ledger()
     append_rows(wb, [ROW, {**ROW, "doc_no": "2", "deadline": ""}])
-    assert fill_deadline(wb, 4, 5, date(2026, 10, 2)) == 1
+    assert fill_dates(wb, 5, 5, "deadline", date(2026, 10, 2)) == 1
     ws = wb.active
     assert [ws.cell(row=r, column=4).value for r in (4, 5)] == [date(2026, 9, 28), date(2026, 10, 2)]
+    with pytest.raises(ValueError):
+        fill_dates(wb, 4, 4, "content", "x")
 
 
 def test_enrich_member_fields():

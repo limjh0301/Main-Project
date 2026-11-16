@@ -18,18 +18,17 @@ from datetime import date
 from flask import Flask, jsonify, render_template, request, send_file
 
 from extractor.ledger import (
-    CONTENT_LABEL,
     LedgerFormatError,
-    UI_FIELDS,
     append_rows,
     create_ledger,
     enrich_member_fields,
     existing_doc_nos,
-    fill_deadline,
+    fill_dates,
     member_names,
     next_row,
     open_ledger,
 )
+from extractor import board, roster
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -92,8 +91,6 @@ def index():
         ocr_available=ocr_available(),
         max_pdf=MAX_PDF_COUNT,
         max_hwp=MAX_HWP_COUNT,
-        ui_fields=UI_FIELDS,
-        content_label=CONTENT_LABEL,
     )
 
 
@@ -190,10 +187,11 @@ def process():
             parsed = enrich_member_fields(_fill_from_name(ParsedRequest().to_dict(), f.filename))
             entries.append((f, "hwp", parsed, [(f, att)]))
 
-        rows, results = [], []
+        rows, results, board_entries = [], [], []
         first_row, recorded = next_row(wb), existing_doc_nos(wb)
-        for f, method, parsed, atts in entries:
-            row, items = _build_row(parsed, [a for _, a in atts], f.filename)
+        for i, (f, method, parsed, atts) in enumerate(entries):
+            att_list = [a for _, a in atts]
+            row, items, title = _build_row(parsed, att_list, f.filename)
             # 이미 대장에 있는 요구서는 다시 적지 않는다 (같은 파일을 두 번 올려도 안전)
             duplicate = bool(parsed["doc_no"]) and parsed["doc_no"] in recorded
             if not duplicate:
@@ -209,8 +207,17 @@ def process():
                 "attachments": [af.filename for af, _ in atts],
                 "items": items,
             })
+            tag = parsed["doc_no"] or f"파일{i + 1}"
+            board_entries.append({
+                "tag": tag if all(e["tag"] != tag for e in board_entries) else f"{tag}#{i + 1}",
+                "parsed": parsed, "title": title, "filename": f.filename, "method": method,
+                "rows": results[-1]["rows"], "duplicate": duplicate,
+                # 이미 대장에 있는 요구서는 배분도 이미 했을 것이므로 질의를 다시 배분하지 않는다
+                "questions": [] if duplicate else board.questions(parsed, att_list, title),
+            })
 
         append_rows(wb, rows)
+        names = roster.read(wb)
 
         result_id = uuid.uuid4().hex
         out_path = os.path.join(RESULT_DIR, f"{result_id}.xlsx")
@@ -222,6 +229,7 @@ def process():
         "skipped": sum(r["duplicate"] for r in results),
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
+        "board": board.build(board_entries, names),
     })
 
 
@@ -287,8 +295,8 @@ _SUB_LINE = re.compile(r"\s+(?=-\s|※)")
 _NUMBERED = re.compile(r"^\s*(\d{1,3})\s*[.)]\s*(.+)$", re.S)
 
 
-def _build_row(parsed: dict, attachments: list, filename: str = "") -> tuple[dict, list[str]]:
-    """요구서 1건을 관리대장 1행으로 만든다. (행, 질의 목록)을 반환한다.
+def _build_row(parsed: dict, attachments: list, filename: str = "") -> tuple[dict, list[str], str]:
+    """요구서 1건을 관리대장 1행으로 만든다. (행, 질의 목록, 요구 제목)을 반환한다.
 
     자료요구서 제목 및 내용 칸은 관리대장 작성 관행대로 "[제목]" 다음 줄부터 질의를
     줄바꿈으로 적는다. 첨부 한글파일이 있으면 첨부의 항목이 질의가 되고, 첨부 앞머리의
@@ -310,7 +318,7 @@ def _build_row(parsed: dict, attachments: list, filename: str = "") -> tuple[dic
     content = "\n".join(lines)
     if len(content) > EXCEL_CELL_LIMIT:
         content = content[: EXCEL_CELL_LIMIT - len(_TRUNCATED)] + _TRUNCATED
-    return {**parsed, "content": content, "memo": memo}, items
+    return {**parsed, "content": content, "memo": memo}, items, title
 
 
 def _split_title(items: list[str]) -> tuple[str, list[str]]:
@@ -339,31 +347,59 @@ def _title_from_name(filename: str, parsed: dict) -> str:
     return re.sub(r"[\s_\-]+", " ", stem).strip()
 
 
-_DEADLINE_INPUT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_DATE_INPUT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_DATE_FIELDS = ("request_date", "deadline")
 
 
-@app.post("/deadline/<result_id>")
-def set_deadline(result_id: str):
-    """결과 화면에서 직접 입력한 제출기한을 결과 엑셀의 해당 행(빈 칸만)에 적는다."""
+@app.post("/dates/<result_id>")
+def set_dates(result_id: str):
+    """결과 화면에서 입력·수정한 접수일자·제출기한을 결과 엑셀의 해당 행에 적는다."""
     path = _result_path(result_id)
     if not path:
         return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
-    updates = (request.get_json(silent=True) or {}).get("deadlines") or []
+    updates = (request.get_json(silent=True) or {}).get("updates") or []
+    parsed_updates = []
+    for u in updates:
+        rows = u.get("rows") if isinstance(u, dict) else None
+        if not (isinstance(rows, list) and len(rows) == 2 and all(isinstance(r, int) for r in rows)):
+            return jsonify({"error": "행 정보가 올바르지 않습니다."}), 400
+        values = {}
+        for key in _DATE_FIELDS:
+            if key not in u:
+                continue
+            m = _DATE_INPUT.match(str(u[key]))
+            try:
+                values[key] = date(*map(int, m.groups())) if m else None
+            except ValueError:
+                values[key] = None
+            if values[key] is None:
+                return jsonify({"error": "날짜 형식이 올바르지 않습니다."}), 400
+        parsed_updates.append((rows, values))
     from openpyxl import load_workbook
 
     wb, filled = load_workbook(path), 0
-    for u in updates:
-        m = _DEADLINE_INPUT.match(str(u.get("deadline", "")))
-        rows = u.get("rows")
-        if not m or not (isinstance(rows, list) and len(rows) == 2 and all(isinstance(r, int) for r in rows)):
-            return jsonify({"error": "제출기한 형식이 올바르지 않습니다."}), 400
-        try:
-            date(*map(int, m.groups()))
-        except ValueError:
-            return jsonify({"error": "없는 날짜입니다."}), 400
-        filled += fill_deadline(wb, rows[0], rows[1], date(*map(int, m.groups())))
+    for (first, last), values in parsed_updates:
+        filled += sum(fill_dates(wb, first, last, key, value) for key, value in values.items())
     wb.save(path)
     return jsonify({"filled": filled})
+
+
+@app.post("/roster/<result_id>")
+def set_roster(result_id: str):
+    """화면에서 고친 부서별 담당자 명단을 결과 엑셀의 '부서별 담당자' 시트에 적는다."""
+    path = _result_path(result_id)
+    if not path:
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "명단 형식이 올바르지 않습니다."}), 400
+    from openpyxl import load_workbook
+
+    names = roster.clean(data)
+    wb = load_workbook(path)
+    roster.write(wb, names)
+    wb.save(path)
+    return jsonify({"roster": names})
 
 
 def _result_path(result_id: str) -> str | None:
