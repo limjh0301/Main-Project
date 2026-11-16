@@ -72,11 +72,37 @@
       </details>
 
       <div class="submit-row">
-        <button type="submit" class="btn primary" id="submit-btn">파일 처리</button>
+        <div class="submit-btns">
+          <button type="submit" class="btn primary" id="submit-btn">파일 처리</button>
+          <button type="button" class="btn" id="status-btn">마감 현황만 보기</button>
+        </div>
         <section id="status" class="status" hidden></section>
       </div>
     </form>
   </main>
+
+  <!-- 마감 현황 -->
+  <section id="dash" class="dash" hidden aria-labelledby="d-title">
+    <header class="d-head">
+      <div><h2 id="d-title">마감 현황</h2><p class="t3" id="d-sub"></p></div>
+      <button type="button" class="btn" id="d-close">닫기</button>
+    </header>
+    <dl class="tiles" id="d-tiles"></dl>
+    <div class="d-grid">
+      <div>
+        <h3>미제출 요구서 <span class="t3">기한 순</span></h3>
+        <table class="d-table"><thead><tr><th>남은 기간</th><th>제출기한</th><th>요구서 번호</th><th>요구의원</th><th>제목</th><th class="num">질의</th><th>부서별 질의</th></tr></thead><tbody id="d-rows"></tbody></table>
+      </div>
+      <aside>
+        <h3>부서별 미제출 질의</h3>
+        <ul class="d-depts" id="d-depts"></ul>
+        <p class="help">대장의 '배분 이력' 기준 · 제출일자를 대장에 적으면 제출 완료로 바뀝니다</p>
+      </aside>
+    </div>
+    <details class="d-done" id="d-done"><summary></summary>
+      <table class="d-table"><thead><tr><th>제출일자</th><th>제출기한</th><th>요구서 번호</th><th>요구의원</th><th>제목</th></tr></thead><tbody id="d-done-rows"></tbody></table>
+    </details>
+  </section>
 
   <!-- 처리 결과: 분배안 보드 -->
   <section id="board" class="board" hidden aria-labelledby="b-title">
@@ -88,6 +114,7 @@
         <p class="b-hint" id="b-noroster" hidden>담당자 명단이 없습니다. '담당자 설정'에서 입력하면 다운로드하는 대장에 함께 저장되어 다음부터 자동으로 채워집니다.</p>
       </div>
       <div class="b-actions">
+        <button type="button" class="btn" id="b-open-status">마감 현황</button>
         <button type="button" class="btn" id="b-open-settings">담당자 설정</button>
         <a class="btn" id="b-download-copy" href="#" hidden>엑셀로 받기</a>
         <a class="btn primary" id="b-download" href="#">관리대장 다운로드</a>
@@ -125,6 +152,7 @@
     window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp, "localMode": local_mode} | tojson }};
   </script>
   <script src="{{ url_for('static', filename='board.js') }}"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

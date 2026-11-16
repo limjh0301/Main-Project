@@ -366,6 +366,14 @@
     $("#b-q").addEventListener("input", apply);
     $("#b-download").addEventListener("click", (e) => download(e, false));
     $("#b-download-copy").addEventListener("click", (e) => download(e, true));
+    $("#b-open-status").addEventListener("click", async () => {
+      try {
+        const res = await fetch(`/status/${resultId}`);
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "현황을 불러오지 못했습니다.");
+        window.Dash.show(j, "방금 처리한 대장");
+      } catch (err) { toast(err.message); }
+    });
     $("#b-open-settings").addEventListener("click", () => { $("#b-st-q").value = ""; renderSettings(); $("#b-settings").showModal(); });
     $("#b-st-q").addEventListener("input", filterSettings);
     $("#b-st-save").addEventListener("click", saveSettings);

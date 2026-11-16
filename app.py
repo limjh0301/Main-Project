@@ -31,7 +31,7 @@ from extractor.ledger import (
     next_row,
     open_ledger,
 )
-from extractor import board, history, learning, roster
+from extractor import board, history, learning, roster, status
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -473,6 +473,46 @@ def set_roster(result_id: str):
     roster.write(wb, names)
     wb.save(path)
     return jsonify({"roster": names})
+
+
+@app.post("/status")
+def ledger_status():
+    """새 파일 없이 관리대장만으로 마감 현황을 본다 (기존 대장 업로드 또는 PC의 대장)."""
+    from openpyxl import load_workbook
+
+    mode = request.form.get("mode", "existing")
+    try:
+        if mode == "local":
+            if not _is_local_request():
+                return jsonify({"error": "PC의 대장은 이 PC에서 실행한 앱에서만 볼 수 있습니다."}), 403
+            path = _local_ledger_path(request.form.get("local_path", ""))
+            if not path:
+                return jsonify({"error": "대장 파일 경로를 확인해 주세요."}), 400
+            wb = open_ledger(path)
+        else:
+            excel_file = request.files.get("excel")
+            if not excel_file or not excel_file.filename.lower().endswith((".xlsx", ".xlsm")):
+                return jsonify({"error": "관리대장 엑셀 파일을 선택해 주세요."}), 400
+            wb = load_workbook(excel_file.stream)  # 양식 검증은 status.build 안의 records()가 한다
+    except LedgerFormatError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
+    try:
+        return jsonify(status.build(wb))
+    except LedgerFormatError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.get("/status/<result_id>")
+def result_status(result_id: str):
+    """방금 처리한 결과 대장의 마감 현황."""
+    path = _result_path(result_id)
+    if not path:
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    from openpyxl import load_workbook
+
+    return jsonify(status.build(load_workbook(path)))
 
 
 def _text(v, limit: int = 2000) -> str:

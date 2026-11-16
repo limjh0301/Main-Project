@@ -104,6 +104,7 @@ button, input, select { font: inherit; color: inherit; }
 .btn:disabled { opacity: .55; cursor: default; }
 #submit-btn { height: 40px; padding: 0 28px; }
 
+.submit-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .status { width: 100%; padding: 10px 12px; border-radius: 4px; font-size: 13.5px; }
 .status.info { background: var(--bg2); color: var(--t2); }
 .status.error { background: var(--err-bg); color: var(--err); }
@@ -116,5 +117,6 @@ button, input, select { font: inherit; color: inherit; }
   .segmented { display: flex; width: 100%; }
   .segment { flex: 1; }
   .segment span { text-align: center; padding: 6px 8px; }
-  #submit-btn { width: 100%; }
+  .submit-btns { width: 100%; }
+  .submit-btns .btn { flex: 1; }
 }

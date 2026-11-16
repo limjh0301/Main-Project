@@ -26,8 +26,9 @@ def split_questions(content: str) -> tuple[str, list[str]]:
         title, lines = lines[0][1:-1].strip(), lines[1:]
     questions: list[str] = []
     for line in lines:
-        if _DETAIL.match(line) and questions:
-            questions[-1] += " " + line
+        if _DETAIL.match(line):
+            if questions:  # 첫 질의 앞의 '※ 대상·기간' 같은 안내 줄은 질의로 세지 않는다
+                questions[-1] += " " + line
         else:
             questions.append(_LEAD.sub("", line))
     return title, [q for q in questions if q]

@@ -168,6 +168,32 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
+// 새 파일 없이 대장만으로 마감 현황 보기
+document.getElementById("status-btn").addEventListener("click", async () => {
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const data = new FormData();
+  data.append("mode", mode);
+  if (mode === "existing") {
+    if (!excelFile) { showStatus("현황을 볼 관리대장 엑셀 파일을 선택해 주세요.", true); return; }
+    data.append("excel", excelFile);
+  } else if (mode === "local") {
+    if (!cleanPath(localPath.value)) { showStatus("대장 파일 경로를 입력해 주세요.", true); localPath.focus(); return; }
+    data.append("local_path", cleanPath(localPath.value));
+  } else {
+    showStatus("새 대장에는 아직 기록이 없습니다. 기존 대장을 선택해 주세요.", true);
+    return;
+  }
+  try {
+    const res = await fetch("/status", { method: "POST", body: data });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "현황을 불러오지 못했습니다.");
+    statusBox.hidden = true;
+    window.Dash.show(json, mode === "local" ? cleanPath(localPath.value).split(/[\\/]/).pop() : excelFile.name);
+  } catch (err) {
+    showStatus(err.message, true);
+  }
+});
+
 function showStatus(message, isError) {
   statusBox.hidden = false;
   statusBox.textContent = message;

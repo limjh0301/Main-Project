@@ -363,3 +363,33 @@ def test_learning_round_trip_through_endpoints(client, tmp_path):
                       content_type="multipart/form-data").get_json()["board"]
     assert (res["items"][0]["dept"], res["items"][0]["why"]) == ("인재개발실", "‘칼퇴’ 추가 규칙")
     assert res["learned"]["stats"] == {"total": 1, "kept": 0, "rate": 0}
+
+
+def test_status_from_uploaded_ledger_and_result(client, tmp_path):
+    from extractor import learning
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [
+        {"doc_no": "0001", "request_date": "2026-09-01", "deadline": "2026.09.05", "member": "을지문덕",
+         "content": "[칼퇴 현황]\n1. 직원 칼퇴\n2. 유연근무"},
+        {"doc_no": "0002", "deadline": "2026.10.30", "content": "예산서"},
+    ])
+    wb.active.cell(row=5, column=9, value=datetime(2026, 10, 1))  # 0002는 제출 완료
+    learning.write_log(wb, [{"doc": "0001", "key": "1", "text": "직원 칼퇴", "model": "기획실", "final": "인재개발실"},
+                            {"doc": "0001", "key": "2", "text": "유연근무", "model": "인재개발실", "final": "인재개발실"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    res = client.post("/status", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx")},
+                      content_type="multipart/form-data")
+    recs = res.get_json()["records"]
+    assert recs[0] == {"doc": "0001", "member": "을지문덕", "title": "칼퇴 현황", "request_date": "2026-09-01",
+                       "deadline": "2026-09-05", "submitted": "", "questions": 2, "depts": {"인재개발실": 2}}
+    assert (recs[1]["title"], recs[1]["submitted"]) == ("예산서", "2026-10-01")
+    bad = client.post("/status", data={"mode": "existing", "excel": (io.BytesIO(b"x"), "a.xlsx")},
+                      content_type="multipart/form-data")
+    assert bad.status_code == 400
+
+    body = _post(client, [(io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.10.02\n1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    assert client.get(f"/status/{rid}").get_json()["records"][0]["deadline"] == "2026-10-02"

@@ -19,6 +19,11 @@ def test_split_questions_keeps_detail_lines_with_question():
                   "법인카드 사용내역(최근 3년간)"]
 
 
+def test_leading_notes_are_not_questions():
+    assert history.split_questions("[병가 현황]\n※ 대상: 연구회\n1. 병가 규정\n- 조문\n2. 사용 현황") == (
+        "병가 현황", ["병가 규정 - 조문", "사용 현황"])
+
+
 def test_match_kinds():
     idx = history.Index(PAST)
     assert idx.match("1. (최근3년간) 예산서, 결산서")[0]["kind"] == "동일"
@@ -45,5 +50,5 @@ def test_records_from_ledger():
     append_rows(wb, [{"doc_no": "0007000001", "request_date": "2025-09-18", "member": "을지문덕",
                       "content": PAST[0]["content"]}])
     wb.active.cell(row=4, column=9, value=datetime(2025, 9, 25))  # 제출일자는 직접 적는 칸
-    assert records(wb) == [{"doc_no": "0007000001", "request_date": "2025-09-18", "member": "을지문덕",
+    assert records(wb) == [{"doc_no": "0007000001", "request_date": "2025-09-18", "deadline": "", "member": "을지문덕",
                             "content": PAST[0]["content"], "submitted": "2025-09-25"}]
