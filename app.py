@@ -31,7 +31,9 @@ from extractor.ledger import (
     next_row,
     open_ledger,
 )
-from extractor import board, history, learning, roster, status
+import io
+
+from extractor import board, export, history, learning, roster, status
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -473,6 +475,22 @@ def set_roster(result_id: str):
     roster.write(wb, names)
     wb.save(path)
     return jsonify({"roster": names})
+
+
+@app.post("/export")
+def export_assignments():
+    """결과 화면에서 최종 확인한 업무 분장내역을 엑셀로 내려준다 (서버에 저장하지 않음)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "분장내역 형식이 올바르지 않습니다."}), 400
+    rows, channel = export.clean(data)
+    if not rows:
+        return jsonify({"error": "내보낼 질의가 없습니다."}), 400
+    buf = io.BytesIO()
+    export.build(rows, channel).save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=f"업무분장내역_{date.today():%y%m%d}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.post("/status")

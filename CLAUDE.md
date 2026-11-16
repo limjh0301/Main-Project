@@ -19,6 +19,7 @@
 | `extractor/history.py` | 이전 질의 찾기 — 대장 기록을 질의 단위로 색인, 동일·기간만 다름·유사(TF-IDF) |
 | `extractor/learning.py` | 배분 정정 학습 — '배분 이력'·'배분 추가 규칙' 시트, 정확도·규칙 제안, 이전 정정 반영 |
 | `extractor/status.py` | 마감 현황 데이터 (`static/dashboard.js`가 D-day를 사용자 PC 날짜로 계산) |
+| `extractor/export.py` | 업무 분장내역 엑셀 — 화면의 최종 배분을 분장내역·부서별 요약·해당없음 시트로 |
 | `extractor/board.py` | 처리 결과 → 분배안 화면 데이터 (`static/board.js`가 그림) |
 | `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (소속 정당 보완, 파일명 의원명 인식) |
 | `templates/`, `static/` | 업로드 UI (KISTI 브랜딩) |

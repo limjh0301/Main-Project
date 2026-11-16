@@ -415,3 +415,15 @@ def test_settings_excluded_and_added_tasks_apply_to_next_run(client, tmp_path):
     got = [(i["dept"], i["task"]) for i in res["items"]]
     assert got == [("인재개발실", "승진·징계·인사 발령·휴직"), ("감사부", "청탁금지")]
     assert res["roster"]["excluded"] == ["감사부|복무감사"]
+
+
+def test_export_endpoint_returns_workbook(client):
+    from openpyxl import load_workbook
+
+    res = client.post("/export", json={"rows": [{"dept": "기획실", "worker": "홍길동", "doc": "0001", "key": "1",
+                                                 "text": "직제표", "due": "2026-10-02", "done": False}],
+                                       "channel": {}})
+    assert res.status_code == 200 and "attachment" in res.headers["Content-Disposition"]
+    assert load_workbook(io.BytesIO(res.data))["분장내역"]["A4"].value == "기획실"
+    assert client.post("/export", json={"rows": []}).status_code == 400
+    assert client.post("/export", json=[1]).status_code == 400

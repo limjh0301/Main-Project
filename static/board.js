@@ -244,6 +244,41 @@
     } catch (err) { toast(err.message); }
   }
 
+  // ---------- 업무 분장내역 엑셀 ----------
+  // 화면의 최종 상태(바꾼 부서·담당자, 기제출)를 그대로 내보낸다
+  function exportRows() {
+    return D.items.filter((it) => !reqOf(it.req).duplicate).map((it) => {
+      const r = reqOf(it.req), d = deptOf(it), notes = [];
+      if (d === NA) notes.push(it.dept === NA ? it.why : `부서 변경 · 원래 ${it.dept}`);
+      else {
+        if (it.amb && !changed(it)) notes.push("확인 필요");
+        if (moved(it)) notes.push(`부서 변경 · 원래 ${it.dept}`);
+        else if (S.wk[it.id] !== undefined) notes.push("담당자 변경");
+      }
+      if (it.same) notes.push(`같은 질의 ${it.same.map(keyText).join(", ")}`);
+      return {
+        dept: d, worker: d === NA ? "" : workerOf(it), doc: r.doc || r.tag, member: r.member, title: r.title,
+        key: it.key, text: [it.main, ...it.rest.map((x) => `- ${x}`)].join("\n"), due: dateOf(r, "due"),
+        done: !!S.done[it.id] && d !== NA, src: S.src[it.id] || "", note: notes.join("; "),
+      };
+    });
+  }
+  async function exportExcel(btn) {
+    btn.disabled = true;
+    try {
+      post("/log", { entries: logEntries() }).catch(() => {}); // 최종 확인한 배분을 배분 이력에도 남긴다
+      const res = await fetch("/export", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: exportRows(), channel: R.channel }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "분장내역을 만들지 못했습니다.");
+      const name = decodeURIComponent((res.headers.get("Content-Disposition") || "").match(/filename\*=UTF-8''([^;]+)/)?.[1] || "업무분장내역.xlsx");
+      const url = URL.createObjectURL(await res.blob());
+      const a = Object.assign(document.createElement("a"), { href: url, download: name });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("분장내역 엑셀을 내려받았습니다");
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  }
+
   // ---------- 담당자 설정 ----------
   // 설정 창에서는 사본(draft)을 고치고, 저장할 때만 명단(R)에 반영한다
   let draft = null, adding = null;
@@ -438,6 +473,7 @@
       } catch (err) { toast(err.message); }
     });
     $("#b-open-settings").addEventListener("click", openSettings);
+    $("#b-export").addEventListener("click", (e) => exportExcel(e.currentTarget));
     $("#b-st-body").addEventListener("click", onSettingsClick);
     $("#b-st-body").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.new) { e.preventDefault(); collect(); root.querySelector(".do-add")?.click(); } });
     $("#b-st-q").addEventListener("input", filterSettings);
