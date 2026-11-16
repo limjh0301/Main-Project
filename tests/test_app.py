@@ -111,3 +111,62 @@ def test_request_date_falls_back_to_filename_only_when_missing(client):
     assert [r["parsed"]["request_date"] for r in body["results"]] == ["2026-09-21", "2026-09-15"]
     ws = _download(client, body)
     assert ws.cell(row=2, column=3).value == "2026-09-21"
+
+
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("0007999174_황정아의원_자료요구서_260921.pdf", "황정아"),
+        ("0007999174_송기헌_자료요구서_260921.pdf", "송기헌"),
+        ("0007999174_김현_자료요구서.pdf", "김현"),  # 두 글자 이름
+        ("0007999174_허영미_자료요구서.pdf", ""),  # 명단에 없는 '허영미'를 '허영'으로 오인하지 않음
+        ("0007999174_공통요구자료.hwp", ""),
+    ],
+)
+def test_member_from_filename(filename, expected):
+    assert app_module._member_from_name(filename) == expected
+
+
+def test_fill_from_name_keeps_text_values_first():
+    parsed = {"doc_no": "0001112223", "request_date": "", "member": "", "deadline": "2026.09.28"}
+    out = app_module._fill_from_name(parsed, "0007999174_황정아의원_자료요구서_260921.pdf")
+    assert out["doc_no"] == "0001112223"  # 본문 값 우선
+    assert (out["request_date"], out["member"]) == ("2026-09-21", "황정아")
+    assert out["from_name"] == ["request_date", "member"]
+
+
+def test_filename_fills_missing_fields_and_member_lookup(client, make_hwpx):
+    pdf = (io.BytesIO("1. 기관 현황 자료".encode()), "0007999174_황정아의원_자료요구서_260921.pdf")
+    hwpx = make_hwpx("0005556667_송기헌_공통요구자료_260915.hwpx", ["1. 기관 현황"])
+    body = _post(client, [pdf, (open(hwpx, "rb"), hwpx.name)]).get_json()
+    p, h = (r["parsed"] for r in body["results"])
+    assert (p["doc_no"], p["request_date"], p["member"]) == ("0007999174", "2026-09-21", "황정아")
+    assert p["committee"] == "과학기술정보방송통신위원회"  # 의원 명단에서 소관위원회 보완
+    assert (h["doc_no"], h["request_date"], h["member"]) == ("0005556667", "2026-09-15", "송기헌")
+    assert h["from_name"] == ["doc_no", "request_date", "member"]
+
+
+def test_deadline_input_fills_only_target_empty_rows(client, make_hwpx):
+    with_deadline = (io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.09.28\n1. 별도 요구".encode()), "a.pdf")
+    no_deadline = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
+    body = _post(client, [with_deadline, (open(no_deadline, "rb"), no_deadline.name)]).get_json()
+    target = body["results"][1]
+    assert target["rows"] == [3, 4] and not target["parsed"]["deadline"]
+
+    rid = body["download_url"].rsplit("/", 1)[1]
+    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": target["rows"], "deadline": "2026-10-02"}]})
+    assert res.status_code == 200 and res.get_json()["filled"] == 2
+    ws = _download(client, body)
+    assert [ws.cell(row=r, column=4).value for r in (2, 3, 4)] == ["2026.09.28", "2026.10.02", "2026.10.02"]
+
+
+@pytest.mark.parametrize("deadline", ["2026.10.02", "2026-02-30", ""])
+def test_deadline_input_rejects_bad_dates(client, deadline):
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": [2, 2], "deadline": deadline}]})
+    assert res.status_code == 400
+
+
+def test_deadline_input_unknown_result(client):
+    assert client.post("/deadline/abc123", json={"deadlines": []}).status_code == 404

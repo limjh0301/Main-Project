@@ -151,10 +151,14 @@ function showStatus(message, isError) {
 }
 
 const METHOD_LABEL = { ocr: "OCR 추출", hwp: "한글 첨부" };
+let lastResult = null;
 
 function renderResult(json) {
-  document.getElementById("result-summary").textContent =
-    `요구서 ${json.results.length}건, 관리대장 ${json.row_count}행을 추가했습니다.`;
+  lastResult = json;
+  const missing = json.results.filter((r) => !r.parsed.deadline).length;
+  const summary = document.getElementById("result-summary");
+  summary.textContent = `요구서 ${json.results.length}건, 관리대장 ${json.row_count}행을 추가했습니다.`;
+  if (missing) summary.appendChild(el("span", ` 제출기한이 없는 요구서 ${missing}건은 아래에서 입력해 주세요.`, "warn"));
 
   const filesBox = document.getElementById("result-files");
   filesBox.innerHTML = "";
@@ -170,7 +174,14 @@ function renderResult(json) {
       table.appendChild(tr);
     };
     for (const { key, label } of CONFIG.fields) {
-      if (r.parsed[key]) addRow(label, el("td", r.parsed[key]));
+      if (key === "deadline" && !r.parsed.deadline) {
+        addRow(label, deadlineInput(r));
+      } else if (r.parsed[key]) {
+        const td = el("td", r.parsed[key]);
+        // 본문에 없어 파일명에서 가져온 값은 표시해 둔다
+        if ((r.parsed.from_name || []).includes(key)) td.appendChild(el("span", "파일명", "from-name"));
+        addRow(label, td);
+      }
     }
     if (r.attachments.length > 0) {
       addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 각각 1행으로 기록`));
@@ -196,6 +207,45 @@ function renderResult(json) {
 
   const link = document.getElementById("download-link");
   link.href = `${json.download_url}?name=${encodeURIComponent(json.download_name)}`;
+  link.onclick = (e) => downloadWithDeadlines(e, link.href);
   resultBox.hidden = false;
   resultBox.scrollIntoView({ behavior: "smooth" });
+}
+
+// 제출기한은 파일명에 없어 직접 입력받는다 — 입력값은 다운로드 직전에 결과 엑셀에 반영한다
+function deadlineInput(r) {
+  const td = el("td", "", "missing");
+  const input = el("input", "", "deadline-input");
+  input.type = "date";
+  input.dataset.rows = JSON.stringify(r.rows);
+  input.setAttribute("aria-label", `${r.filename} 제출기한`);
+  input.addEventListener("input", () => td.classList.toggle("missing", !input.value));
+  td.append(input, el("span", "필수 · 직접 입력", "required-tag"));
+  return td;
+}
+
+async function downloadWithDeadlines(e, href) {
+  e.preventDefault();
+  const inputs = [...document.querySelectorAll(".deadline-input")];
+  const filled = inputs.filter((i) => i.value);
+  try {
+    if (filled.length) {
+      const res = await fetch(`/deadline/${lastResult.download_url.split("/").pop()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deadlines: filled.map((i) => ({ rows: JSON.parse(i.dataset.rows), deadline: i.value })) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "제출기한을 반영하지 못했습니다.");
+    }
+  } catch (err) {
+    showStatus(err.message, true);
+    return;
+  }
+  const empty = inputs.length - filled.length;
+  if (empty && !confirm(`제출기한이 비어 있는 요구서가 ${empty}건 있습니다. 비워 둔 채로 다운로드할까요?`)) {
+    inputs.find((i) => !i.value).focus();
+    return;
+  }
+  window.location.href = href;
 }

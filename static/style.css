@@ -343,6 +343,23 @@ body {
   vertical-align: top;
 }
 .result-file th { background: #f8f7fd; white-space: nowrap; width: 90px; font-weight: 500; }
+.from-name {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.deadline-input {
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.missing .deadline-input { border-color: #b45309; }
+.required-tag { margin-left: 8px; font-size: 12px; color: #b45309; }
+td:not(.missing) > .required-tag { display: none; }
 
 .download-btn {
   display: block;

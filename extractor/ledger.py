@@ -69,6 +69,11 @@ def member_info(name: str) -> tuple[str, str, str] | None:
     return _MEMBER_INFO.get(name)
 
 
+def member_names() -> list[str]:
+    """국회의원 현황의 의원명 목록 (긴 이름부터 — 파일명에서 찾을 때 짧은 이름이 먼저 걸리지 않도록)."""
+    return sorted({row[2] for row in _members()[1:]}, key=len, reverse=True)
+
+
 def enrich_member_fields(data: dict) -> dict:
     """요구의원이 국회의원 현황에 있으면 정당·소관위원회·지역구를 명단 값으로 채운다."""
     info = member_info(data.get("member", ""))
@@ -169,6 +174,22 @@ def _lookup_formula(key: str, row_idx: int, fallback: str) -> str:
     rng = f"'{MEMBER_SHEET_NAME}'!$C$2:$F${len(_members())}"
     fb = str(fallback).replace('"', '""')
     return f'=IFERROR(VLOOKUP({member_cell},{rng},{_LOOKUP_OFFSET[key]},0),"{fb}")'
+
+
+def next_row(wb) -> int:
+    """다음에 추가될 관리대장 행 번호."""
+    return _sheet(wb).max_row + 1
+
+
+def fill_deadline(wb, first: int, last: int, deadline: str) -> int:
+    """관리대장 first~last 행 중 제출기한이 빈 칸에 제출기한을 적고, 적은 칸 수를 반환한다."""
+    ws, col, filled = _sheet(wb), _KEYS.index("deadline") + 1, 0
+    for row_idx in range(max(first, 2), min(last, ws.max_row) + 1):
+        cell = ws.cell(row=row_idx, column=col)
+        if not cell.value:
+            cell.value = deadline
+            filled += 1
+    return filled
 
 
 def append_rows(wb, rows: list[dict]) -> int:

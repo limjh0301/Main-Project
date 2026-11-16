@@ -23,6 +23,9 @@ from extractor.ledger import (
     append_rows,
     create_ledger,
     enrich_member_fields,
+    fill_deadline,
+    member_names,
+    next_row,
     open_ledger,
 )
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
@@ -45,6 +48,9 @@ _DATE_SUFFIX_RE = re.compile(r"_\d{6}$")
 _DOC_NO_IN_NAME = re.compile(r"(?<!\d)\d{10}(?!\d)")
 # 질의서 PDF 파일명은 요구일자(YYMMDD)로 끝난다 — 질의서 본문에는 요구일자가 인쇄되지 않는다
 _REQUEST_DATE_IN_NAME = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})$")
+# 파일명에서 본문에 없는 값을 채우는 항목 — 본문 값이 있으면 본문 값을 쓴다
+NAME_FIELDS = ("doc_no", "request_date", "member")
+_member_in_name: re.Pattern | None = None
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -161,12 +167,12 @@ def process():
             except HwpReadError as e:
                 return jsonify({"error": f"{f.filename}: {e}"}), 422
 
-        # 요구의원이 국회의원 현황 명단에 있으면 소관위원회·정당·지역구를 명단 값으로 채운다
-        parsed_list = [enrich_member_fields(parse_request(text).to_dict()) for text, _ in extracted]
-        for f, parsed in zip(pdf_files, parsed_list):
-            parsed["request_date"] = parsed["request_date"] or _request_date_from_name(
-                f.filename, parsed["deadline"]
-            )
+        # 본문에 없는 요구서번호·요구일자·요구의원은 파일명으로 채우고, 요구의원이 국회의원 현황
+        # 명단에 있으면 소관위원회·정당·지역구를 명단 값으로 채운다
+        parsed_list = [
+            enrich_member_fields(_fill_from_name(parse_request(text).to_dict(), f.filename))
+            for f, (text, _) in zip(pdf_files, extracted)
+        ]
 
         linked = [[] for _ in pdf_files]
         standalone = []
@@ -174,18 +180,21 @@ def process():
             idx = _match_request(f.filename, parsed_list)
             (linked[idx] if idx is not None else standalone).append((f, att))
 
-        # 질의서에 연결되지 않은 첨부는 파일명의 요구서번호만으로 별도 기록한다
+        # 질의서에 연결되지 않은 첨부는 파일명의 요구서번호·요구일자·요구의원으로 별도 기록한다
         entries = [(f, method, parsed, linked[i])
                    for i, (f, parsed, (_, method)) in enumerate(zip(pdf_files, parsed_list, extracted))]
         for f, att in standalone:
-            m = _DOC_NO_IN_NAME.search(f.filename)
-            entries.append((f, "hwp", ParsedRequest(doc_no=m.group() if m else "").to_dict(), [(f, att)]))
+            parsed = enrich_member_fields(_fill_from_name(ParsedRequest().to_dict(), f.filename))
+            entries.append((f, "hwp", parsed, [(f, att)]))
 
         rows, results = [], []
+        first_row = next_row(wb)
         for f, method, parsed, atts in entries:
             new_rows = _build_rows(parsed, [a for _, a in atts])
             rows.extend(new_rows)
             results.append({
+                # 제출기한을 나중에 입력받아 이 행 범위에 채운다
+                "rows": [first_row + len(rows) - len(new_rows), first_row + len(rows) - 1],
                 "filename": f.filename,
                 "method": method,
                 "parsed": parsed,
@@ -205,6 +214,36 @@ def process():
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
     })
+
+
+def _fill_from_name(parsed: dict, filename: str) -> dict:
+    """본문에서 못 찾은 요구서번호·요구일자·요구의원을 파일명에서 채운다.
+
+    채운 항목은 parsed["from_name"]에 남겨 결과 화면에서 '파일명' 표시를 한다.
+    """
+    found = {
+        "doc_no": (m.group() if (m := _DOC_NO_IN_NAME.search(filename)) else ""),
+        "request_date": _request_date_from_name(filename, parsed.get("deadline", "")),
+        "member": _member_from_name(filename),
+    }
+    parsed["from_name"] = [k for k in NAME_FIELDS if not parsed.get(k) and found[k]]
+    for k in parsed["from_name"]:
+        parsed[k] = found[k]
+    return parsed
+
+
+def _member_from_name(filename: str) -> str:
+    """파일명에서 국회의원 현황 명단의 의원명을 찾는다.
+
+    '김현'이 '김현정'에 걸리지 않도록 이름 앞뒤가 다른 한글 글자가 아닐 때만 인정한다
+    (뒤에 '의원'·'위원'이 붙는 것은 허용).
+    """
+    global _member_in_name
+    if _member_in_name is None:
+        names = "|".join(map(re.escape, member_names()))
+        _member_in_name = re.compile(rf"(?<![가-힣])({names})(?=의원|위원|[^가-힣]|$)")
+    m = _member_in_name.search(os.path.splitext(filename)[0])
+    return m.group(1) if m else ""
 
 
 def _request_date_from_name(filename: str, deadline: str) -> str:
@@ -249,6 +288,40 @@ def _build_rows(parsed: dict, attachments: list) -> list[dict]:
         {**parsed, "content": item, "memo": f"[첨부 안내]\n{notes}" if i == 0 and notes else ""}
         for i, item in enumerate(items)
     ]
+
+
+_DEADLINE_INPUT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+
+
+@app.post("/deadline/<result_id>")
+def set_deadline(result_id: str):
+    """결과 화면에서 직접 입력한 제출기한을 결과 엑셀의 해당 행(빈 칸만)에 적는다."""
+    path = _result_path(result_id)
+    if not path:
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    updates = (request.get_json(silent=True) or {}).get("deadlines") or []
+    from openpyxl import load_workbook
+
+    wb, filled = load_workbook(path), 0
+    for u in updates:
+        m = _DEADLINE_INPUT.match(str(u.get("deadline", "")))
+        rows = u.get("rows")
+        if not m or not (isinstance(rows, list) and len(rows) == 2 and all(isinstance(r, int) for r in rows)):
+            return jsonify({"error": "제출기한 형식이 올바르지 않습니다."}), 400
+        try:
+            date(*map(int, m.groups()))
+        except ValueError:
+            return jsonify({"error": "없는 날짜입니다."}), 400
+        filled += fill_deadline(wb, rows[0], rows[1], ".".join(m.groups()))
+    wb.save(path)
+    return jsonify({"filled": filled})
+
+
+def _result_path(result_id: str) -> str | None:
+    if not result_id or not all(c in "0123456789abcdef" for c in result_id):
+        return None
+    path = os.path.join(RESULT_DIR, f"{result_id}.xlsx")
+    return path if os.path.isfile(path) else None
 
 
 @app.get("/download/<result_id>")
