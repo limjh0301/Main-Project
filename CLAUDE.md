@@ -13,8 +13,8 @@
 | `extractor/pdf_text.py` | PDF 텍스트 추출 (pdfplumber → tesseract OCR 폴백) |
 | `extractor/hwp_text.py` | 첨부 한글파일 텍스트 추출 (HWP 5.0 OLE / HWPX ZIP+XML) |
 | `extractor/parser.py` | 요구서 항목 파싱, 첨부 한글파일 항목 분리 (정규식) |
-| `extractor/ledger.py` | 엑셀 관리대장 생성·누적, 국회의원 현황 시트 연동 (openpyxl) |
-| `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (관리대장 시트2 데이터) |
+| `extractor/ledger.py` | 엑셀 관리대장 생성·누적 — 기관 관리대장 양식(제목 1행·머리글 3행), 기존 대장 이어쓰기·중복 건너뜀 (openpyxl) |
+| `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (소속 정당 보완, 파일명 의원명 인식) |
 | `templates/`, `static/` | 업로드 UI (KISTI 브랜딩) |
 | `deploy/`, `render.yaml`, `Dockerfile` | 배포 (Render Blueprint / Docker / systemd) |
 | `start.bat`, `start.sh`, `바로가기.html` | 로컬 PC 실행 지원 |

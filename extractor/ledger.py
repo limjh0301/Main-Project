@@ -1,59 +1,61 @@
 """엑셀 관리대장 생성·누적 모듈 (openpyxl).
 
-관리대장 열 구조는 시스템이 자동 생성하며, 임의로 열을 바꾸면 기능 오류가
-발생할 수 있으므로 기존 파일을 열 때 헤더를 검증한다.
-요구서 1건 = 1행으로 기록한다.
-
-'국회의원 현황' 시트(제22대 의원 명단)를 함께 넣고, 소관위원회·정당·지역구는
-요구의원 이름을 키로 한 VLOOKUP 수식으로 연동한다. 명단에 없는 요구자(기관 등)는
-요구서에서 파싱한 값으로 대신 채운다.
+기관에서 쓰는 '국회 요구자료' 관리대장 양식을 따른다.
+  1행: 제목(예: 2026년도 국회 요구자료) / 3행: 머리글 / 4행부터: 요구서 1건 = 1행
+기존 관리대장을 올리면 머리글 행을 찾아 열 구조를 검증하고, 마지막 기록 다음 행에
+이어 쓴다. 이어 쓸 때는 바로 위 기록 행의 서식(글꼴·테두리·표시형식)을 그대로 따른다.
+소속(정당)은 '국회의원 현황' 명단(제22대)에서 의원명으로 찾아 값으로 적는다.
 """
 
 import csv
 import os
+import re
+from copy import copy
+from datetime import date, datetime
 
-SHEET_NAME = "관리대장"
-MEMBER_SHEET_NAME = "국회의원 현황"
+SHEET_NAME = "기관명"
+TITLE_FORMAT = "{year}년도 국회 요구자료"
+HEADER_ROW = 3  # 새 관리대장의 머리글 행 (기존 파일은 위쪽 10행 안에서 찾는다)
+_HEADER_SEARCH_ROWS = 10
 _MEMBER_CSV = os.path.join(os.path.dirname(__file__), "data", "assembly_members.csv")
 
-# (헤더, 너비, 행 데이터 키) — 키가 None이면 수동 관리 항목(빈 값으로 둠)
+# (머리글, 너비, 행 데이터 키) — 키가 None이면 수동 관리 항목(빈 값으로 둠)
 COLUMNS = [
-    ("요구서번호", 14, "doc_no"),
-    ("소관위원회", 18, "committee"),
-    ("요구일자", 12, "request_date"),
-    ("제출기한", 12, "deadline"),
-    ("요구의원/기관", 14, "member"),
-    ("정당", 14, "party"),
-    ("지역구", 16, "district"),
-    ("자료 요구내용", 55, "content"),
-    ("요구자", 10, "requester"),
-    ("요구자 이메일", 24, "email"),
-    ("담당 부서", 18, None),
-    ("제출여부", 10, None),
-    ("비고/메모", 20, "memo"),
+    ("순번", 4.6, "seq"),
+    ("요구서 번호", 10.5, "doc_no"),
+    ("접수일자", 11.1, "request_date"),
+    ("제출기한", 10.1, "deadline"),
+    ("소속", 13, "party"),
+    ("의원명", 12.1, "member"),
+    ("비서관", 9, "requester"),
+    ("자료요구서 제목 및 내용", 120.5, "content"),
+    ("제출일자", 13.2, None),
+    ("비고", 29.9, "memo"),
 ]
 
 HEADER = [name for name, _, _ in COLUMNS]
 _KEYS = [key for _, _, key in COLUMNS]
-_CONTENT_COL = _KEYS.index("content") + 1
-_MEMBER_COL = _KEYS.index("member") + 1
-
-# 국회의원 현황 시트에서 의원명(C열)을 기준으로 찾을 항목과 VLOOKUP 열 위치
-# (C=의원명, D=정당, E=소속위원회, F=지역)
-_LOOKUP_OFFSET = {"party": 2, "committee": 3, "district": 4}
+_COL = {key: i + 1 for i, key in enumerate(_KEYS) if key}
+_DATE_KEYS = ("request_date", "deadline")
+_DATE_FORMAT = "mm-dd-yy"
 
 # 프론트 결과 미리보기가 사용할 (키, 라벨) 목록 — COLUMNS가 단일 출처
-UI_FIELDS = [
-    {"key": key, "label": name} for name, _, key in COLUMNS if key and key != "content"
-]
-CONTENT_LABEL = HEADER[_CONTENT_COL - 1]
+UI_FIELDS = [{"key": key, "label": name} for name, _, key in COLUMNS if key and key not in ("seq", "content")]
+CONTENT_LABEL = HEADER[_COL["content"] - 1]
 
-# openpyxl은 무거우므로 첫 사용 시점에 로딩한다 (서버 시작 속도 개선)
+# 행 높이: 줄당 12pt (엑셀 최대 409.5pt). 내용 칸 한 줄에 들어가는 글자 폭(한글 2, 그 외 1)
+_LINE_HEIGHT, _MIN_HEIGHT, _MAX_HEIGHT, _LINE_WIDTH = 12, 24, 409.5, 140
+
 _STYLES: dict = {}
 _MEMBERS: list[list[str]] = []  # [0]=헤더, [1:]=의원 행
 _MEMBER_INFO: dict[str, tuple[str, str, str]] = {}  # 의원명 -> (정당, 소속위원회, 지역)
 
 
+class LedgerFormatError(ValueError):
+    """기존 엑셀 파일의 열 구조가 관리대장 양식과 다를 때 발생."""
+
+
+# ---------------- 국회의원 명단 ----------------
 def _members() -> list[list[str]]:
     if not _MEMBERS:
         with open(_MEMBER_CSV, newline="", encoding="utf-8") as f:
@@ -82,51 +84,42 @@ def enrich_member_fields(data: dict) -> dict:
     return data
 
 
+# ---------------- 양식 ----------------
 def _styles() -> dict:
     if not _STYLES:
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-        side = Side(style="thin", color="CCCCCC")
+        side = Side(style="thin")
         _STYLES.update(
-            header_fill=PatternFill("solid", fgColor="1F6FB2"),
-            header_font=Font(bold=True, color="FFFFFF"),
+            title_font=Font(name="HY헤드라인M", size=22),
+            header_fill=PatternFill("solid", fgColor="DDEBF7"),
+            header_font=Font(name="맑은 고딕", size=11, bold=True),
+            body_font=Font(name="맑은 고딕", size=9),
             border=Border(left=side, right=side, top=side, bottom=side),
-            align_header=Alignment(horizontal="center", vertical="center"),
-            align_plain=Alignment(vertical="center"),
-            align_wrap=Alignment(vertical="center", wrap_text=True),
+            center=Alignment(horizontal="center", vertical="center"),
+            content=Alignment(horizontal="left", vertical="center", wrap_text=True),
         )
     return _STYLES
 
 
-def _sheet(wb):
-    return wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+def _norm_header(value) -> str:
+    return re.sub(r"\s+", "", str(value or ""))
 
 
-class LedgerFormatError(ValueError):
-    """기존 엑셀 파일의 열 구조가 관리대장 서식과 다를 때 발생."""
+def _locate(wb):
+    """(관리대장 시트, 머리글 행)을 찾는다. 없으면 LedgerFormatError."""
+    want = [_norm_header(h) for h in HEADER]
+    for ws in wb.worksheets:
+        for r in range(1, min(ws.max_row, _HEADER_SEARCH_ROWS) + 1):
+            if [_norm_header(ws.cell(row=r, column=c).value) for c in range(1, len(HEADER) + 1)] == want:
+                return ws, r
+    raise LedgerFormatError(
+        "선택한 엑셀 파일이 관리대장 양식과 다릅니다. 머리글이 "
+        f"'{' · '.join(HEADER)}' 순서인지 확인하거나 '새 관리대장 생성'을 사용해 주세요."
+    )
 
 
-def _add_member_sheet(wb):
-    from openpyxl.utils import get_column_letter
-
-    st = _styles()
-    ws = wb.create_sheet(MEMBER_SHEET_NAME)
-    widths = [6, 8, 10, 14, 34, 20, 6, 8, 10]
-    for r, row in enumerate(_members(), start=1):
-        for c, value in enumerate(row, start=1):
-            cell = ws.cell(row=r, column=c, value=value)
-            if r == 1:
-                cell.fill = st["header_fill"]
-                cell.font = st["header_font"]
-                cell.alignment = st["align_header"]
-            cell.border = st["border"]
-    for idx, width in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(idx)].width = width
-    ws.freeze_panes = "A2"
-    return ws
-
-
-def create_ledger():
+def create_ledger(year: int | None = None):
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
@@ -134,15 +127,19 @@ def create_ledger():
     wb = Workbook()
     ws = wb.active
     ws.title = SHEET_NAME
+    title = ws.cell(row=1, column=1, value=TITLE_FORMAT.format(year=year or date.today().year))
+    title.font = st["title_font"]
+    ws.row_dimensions[1].height = 27
     for idx, (name, width, _) in enumerate(COLUMNS, start=1):
-        cell = ws.cell(row=1, column=idx, value=name)
-        cell.fill = st["header_fill"]
-        cell.font = st["header_font"]
-        cell.alignment = st["align_header"]
-        cell.border = st["border"]
+        cell = ws.cell(row=HEADER_ROW, column=idx, value=name)
+        cell.fill, cell.font, cell.alignment, cell.border = (
+            st["header_fill"], st["header_font"], st["center"], st["border"])
         ws.column_dimensions[get_column_letter(idx)].width = width
-    ws.freeze_panes = "A2"
-    _add_member_sheet(wb)
+    ws.freeze_panes = f"A{HEADER_ROW + 1}"
+    ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(len(COLUMNS))}{HEADER_ROW}"
+    ws.page_setup.orientation = "landscape"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToHeight = 0
     return wb
 
 
@@ -150,61 +147,110 @@ def open_ledger(path: str):
     from openpyxl import load_workbook
 
     wb = load_workbook(path)
-    ws = _sheet(wb)
-    header = [
-        (str(ws.cell(row=1, column=i + 1).value).strip() if ws.cell(row=1, column=i + 1).value else "")
-        for i in range(len(HEADER))
-    ]
-    if header != HEADER:
-        raise LedgerFormatError(
-            "선택한 엑셀 파일이 관리대장 서식과 다릅니다. "
-            "'새 관리대장 생성'으로 다시 만들거나 올바른 파일을 선택해 주세요."
-        )
-    # 예전 버전으로 만든 파일에는 의원 명단 시트가 없을 수 있으므로 보충한다
-    if MEMBER_SHEET_NAME not in wb.sheetnames:
-        _add_member_sheet(wb)
+    _locate(wb)  # 양식 검증
     return wb
 
 
-def _lookup_formula(key: str, row_idx: int, fallback: str) -> str:
-    """의원명 셀을 키로 한 VLOOKUP 수식. 명단에 없으면 파싱한 값(fallback)을 쓴다."""
-    from openpyxl.utils import get_column_letter
+# ---------------- 기록 ----------------
+def _values(ws, header_row: int, cols: range):
+    """머리글 아래에서 값이 있는 칸만 (행, 열, 값)으로 돌려준다.
 
-    member_cell = f"${get_column_letter(_MEMBER_COL)}{row_idx}"
-    rng = f"'{MEMBER_SHEET_NAME}'!$C$2:$F${len(_members())}"
-    fb = str(fallback).replace('"', '""')
-    return f'=IFERROR(VLOOKUP({member_cell},{rng},{_LOOKUP_OFFSET[key]},0),"{fb}")'
+    서식만 넓게 지정된 대장은 max_row가 100만 행을 넘기도 하므로, 빈 칸을 하나씩
+    훑지 않고 실제로 만들어진 셀만 본다.
+    """
+    for (r, c), cell in ws._cells.items():
+        if r > header_row and c in cols and cell.value not in (None, ""):
+            yield r, c, cell.value
+
+
+def _last_data_row(ws, header_row: int) -> int:
+    """마지막 기록 행. 순번만 미리 채워 둔 빈 행은 기록으로 보지 않는다 (요구서 번호~비고 중 값이 있어야 함)."""
+    return max((r for r, _, _ in _values(ws, header_row, range(2, len(COLUMNS) + 1))), default=header_row)
 
 
 def next_row(wb) -> int:
-    """다음에 추가될 관리대장 행 번호."""
-    return _sheet(wb).max_row + 1
+    """다음에 기록될 관리대장 행 번호."""
+    ws, header_row = _locate(wb)
+    return _last_data_row(ws, header_row) + 1
 
 
-def fill_deadline(wb, first: int, last: int, deadline: str) -> int:
-    """관리대장 first~last 행 중 제출기한이 빈 칸에 제출기한을 적고, 적은 칸 수를 반환한다."""
-    ws, col, filled = _sheet(wb), _KEYS.index("deadline") + 1, 0
-    for row_idx in range(max(first, 2), min(last, ws.max_row) + 1):
-        cell = ws.cell(row=row_idx, column=col)
-        if not cell.value:
-            cell.value = deadline
-            filled += 1
-    return filled
+def existing_doc_nos(wb) -> set[str]:
+    """관리대장에 이미 기록된 요구서 번호 (같은 요구서를 두 번 올려도 중복 기록하지 않도록)."""
+    ws, header_row = _locate(wb)
+    col = _COL["doc_no"]
+    return {str(v).strip() for _, _, v in _values(ws, header_row, range(col, col + 1))}
+
+
+def _to_date(value):
+    """'2026-09-21' / '2026.09.28' → date. 날짜가 아니면 원래 값."""
+    if isinstance(value, (date, datetime)):
+        return value
+    m = re.fullmatch(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", str(value or "").strip())
+    if not m:
+        return value
+    try:
+        return date(*map(int, m.groups()))
+    except ValueError:
+        return value
+
+
+def _row_height(content: str) -> float:
+    width = lambda s: sum(2 if ord(ch) > 0x1100 else 1 for ch in s)
+    lines = sum(max(1, -(-width(line) // _LINE_WIDTH)) for line in str(content).split("\n"))
+    return min(_MAX_HEIGHT, max(_MIN_HEIGHT, lines * _LINE_HEIGHT))
 
 
 def append_rows(wb, rows: list[dict]) -> int:
-    """요구서 1건당 1행씩 관리대장에 추가하고, 추가된 행 수를 반환한다."""
-    st = _styles()
-    ws = _sheet(wb)
-    next_row = ws.max_row + 1
+    """요구서 1건당 1행씩 마지막 기록 다음 행부터 적고, 적은 행 수를 반환한다.
 
-    for offset, row_data in enumerate(rows):
-        row_idx = next_row + offset
-        for col, (_, _, key) in enumerate(COLUMNS, start=1):
-            value = row_data.get(key, "") if key else ""
-            if key in _LOOKUP_OFFSET:
-                value = _lookup_formula(key, row_idx, value)
-            cell = ws.cell(row=row_idx, column=col, value=value)
-            cell.border = st["border"]
-            cell.alignment = st["align_wrap"] if col == _CONTENT_COL else st["align_plain"]
+    순번은 기존 기록의 마지막 순번에 이어 붙인다. 서식은 바로 위 기록 행을 따르고,
+    기록이 없으면(새 관리대장) 기본 양식을 쓴다.
+    """
+    from openpyxl.utils import get_column_letter
+
+    ws, header_row = _locate(wb)
+    last = _last_data_row(ws, header_row)
+    seq = int(max((v for r, _, v in _values(ws, header_row, range(1, 2))
+                   if r <= last and isinstance(v, (int, float))), default=0))
+    st = _styles()
+
+    for offset, data in enumerate(rows, start=1):
+        row_idx, seq = last + offset, seq + 1
+        values = {**data, "seq": seq}
+        for col, key in enumerate(_KEYS, start=1):
+            value = values.get(key, "") if key else None
+            if key in _DATE_KEYS:
+                value = _to_date(value) or None
+            cell = ws.cell(row=row_idx, column=col, value=value if value != "" else None)
+            template = ws.cell(row=row_idx - 1, column=col) if row_idx - 1 > header_row else None
+            if template is not None and template.has_style:
+                cell._style = copy(template._style)
+            else:
+                cell.font, cell.border = st["body_font"], st["border"]
+                cell.alignment = st["content"] if key == "content" else st["center"]
+                if key in _DATE_KEYS or key is None:
+                    cell.number_format = _DATE_FORMAT
+        ws.row_dimensions[row_idx].height = _row_height(values.get("content", ""))
+
+    # 자동 필터 범위가 새 행을 덮도록 넓힌다
+    end = last + len(rows)
+    ref = ws.auto_filter.ref
+    m = re.fullmatch(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", ref or "")
+    if m and int(m.group(4)) < end:
+        ws.auto_filter.ref = f"{m.group(1)}{m.group(2)}:{m.group(3)}{end}"
+    elif not m:
+        ws.auto_filter.ref = f"A{header_row}:{get_column_letter(len(COLUMNS))}{end}"
     return len(rows)
+
+
+def fill_deadline(wb, first: int, last: int, deadline) -> int:
+    """관리대장 first~last 행 중 제출기한이 빈 칸에 제출기한을 적고, 적은 칸 수를 반환한다."""
+    ws, header_row = _locate(wb)
+    col, filled = _COL["deadline"], 0
+    for row_idx in range(max(first, header_row + 1), last + 1):
+        cell = ws.cell(row=row_idx, column=col)
+        if cell.value in (None, ""):
+            cell.value = _to_date(deadline)
+            cell.number_format = _DATE_FORMAT
+            filled += 1
+    return filled

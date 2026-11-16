@@ -24,6 +24,7 @@ from extractor.ledger import (
     append_rows,
     create_ledger,
     enrich_member_fields,
+    existing_doc_nos,
     fill_deadline,
     member_names,
     next_row,
@@ -190,13 +191,18 @@ def process():
             entries.append((f, "hwp", parsed, [(f, att)]))
 
         rows, results = [], []
-        first_row = next_row(wb)
+        first_row, recorded = next_row(wb), existing_doc_nos(wb)
         for f, method, parsed, atts in entries:
-            row, items = _build_row(parsed, [a for _, a in atts])
-            rows.append(row)
+            row, items = _build_row(parsed, [a for _, a in atts], f.filename)
+            # 이미 대장에 있는 요구서는 다시 적지 않는다 (같은 파일을 두 번 올려도 안전)
+            duplicate = bool(parsed["doc_no"]) and parsed["doc_no"] in recorded
+            if not duplicate:
+                rows.append(row)
+                recorded.add(parsed["doc_no"])
             results.append({
+                "duplicate": duplicate,
                 # 제출기한을 나중에 입력받아 이 행에 채운다 (API는 행 범위를 받음)
-                "rows": [first_row + len(rows) - 1] * 2,
+                "rows": None if duplicate else [first_row + len(rows) - 1] * 2,
                 "filename": f.filename,
                 "method": method,
                 "parsed": parsed,
@@ -213,6 +219,7 @@ def process():
     return jsonify({
         "results": results,
         "row_count": len(rows),
+        "skipped": sum(r["duplicate"] for r in results),
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
     })
@@ -275,27 +282,61 @@ def _match_request(filename: str, parsed_list: list[dict]) -> int | None:
 
 
 _TRUNCATED = "\n… (엑셀 한 칸 글자 수 한도로 이하 생략 — 원본 확인)"
+# 요구목록 첫 항목 "1. 제목" 뒤에 붙은 세부 내용("- …", "※ …")은 줄을 나눠 적는다
+_SUB_LINE = re.compile(r"\s+(?=-\s|※)")
+_NUMBERED = re.compile(r"^\s*(\d{1,3})\s*[.)]\s*(.+)$", re.S)
 
 
-def _build_row(parsed: dict, attachments: list) -> tuple[dict, list[str]]:
-    """요구서 1건을 관리대장 1행으로 만든다. 질의 내역은 한 셀에 줄바꿈으로 넣는다.
+def _build_row(parsed: dict, attachments: list, filename: str = "") -> tuple[dict, list[str]]:
+    """요구서 1건을 관리대장 1행으로 만든다. (행, 질의 목록)을 반환한다.
 
-    첨부 한글파일이 있으면 첨부의 항목이 질의 내역이 되고, 첨부 앞머리의 안내
-    (제출기한·제출방법 등)는 비고에 적는다. (행, 질의 목록)을 반환한다.
+    자료요구서 제목 및 내용 칸은 관리대장 작성 관행대로 "[제목]" 다음 줄부터 질의를
+    줄바꿈으로 적는다. 첨부 한글파일이 있으면 첨부의 항목이 질의가 되고, 첨부 앞머리의
+    안내(제출기한·제출방법 등)는 비고에 적는다.
     """
+    title, body = _split_title(parsed.get("items") or [])
     memo = ""
     if attachments:
         items = [item for a in attachments for item in a.items]
         notes = "\n".join(n for a in attachments for n in a.notes)
         if items and notes:
             memo = f"[첨부 안내]\n{notes}"
-        content = "\n".join(items) or notes or "(첨부 항목 미추출 — 원본 확인 필요)"
+        body = items or ([notes] if notes else ["(첨부 항목 미추출 — 원본 확인 필요)"])
+        title = title or _title_from_name(filename, parsed)
     else:
         items = parsed.get("items") or []
-        content = "\n".join(items) or "(요구내용 미추출 — 원본 확인 필요)"
+        body = body if (title or body) else ["(요구내용 미추출 — 원본 확인 필요)"]
+    lines = ([f"[{title}]"] if title else []) + [_SUB_LINE.sub("\n", line) for line in body]
+    content = "\n".join(lines)
     if len(content) > EXCEL_CELL_LIMIT:
         content = content[: EXCEL_CELL_LIMIT - len(_TRUNCATED)] + _TRUNCATED
     return {**parsed, "content": content, "memo": memo}, items
+
+
+def _split_title(items: list[str]) -> tuple[str, list[str]]:
+    """요구목록의 첫 항목 "1. 제목"을 제목으로 떼어 낸다.
+
+    전자유통시스템 요구목록은 "1. 제목" 아래에 세부 질의가 다시 1번부터 붙거나,
+    항목이 하나뿐이다. 그렇지 않으면(1. 2. 3. … 이 이어지면) 제목 없이 항목을 그대로 쓴다.
+    """
+    if not items:
+        return "", []
+    m = _NUMBERED.match(items[0])
+    restarts = len(items) == 1 or re.match(r"^\s*1\s*[.)]", items[1])
+    if not m or not restarts:
+        return "", items
+    head, *rest = _SUB_LINE.split(m.group(2).strip(), maxsplit=1)
+    return head.strip(), rest + items[1:]
+
+
+def _title_from_name(filename: str, parsed: dict) -> str:
+    """질의서 없이 들어온 첨부의 제목: 파일명에서 요구서번호·날짜·의원명을 뺀 나머지."""
+    stem = os.path.splitext(filename)[0]
+    for part in (parsed.get("doc_no"), parsed.get("member")):
+        if part:
+            stem = re.sub(re.escape(part) + r"(?:의원실|의원)?", " ", stem)
+    stem = _REQUEST_DATE_IN_NAME.sub(" ", stem)
+    return re.sub(r"[\s_\-]+", " ", stem).strip()
 
 
 _DEADLINE_INPUT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
@@ -320,7 +361,7 @@ def set_deadline(result_id: str):
             date(*map(int, m.groups()))
         except ValueError:
             return jsonify({"error": "없는 날짜입니다."}), 400
-        filled += fill_deadline(wb, rows[0], rows[1], ".".join(m.groups()))
+        filled += fill_deadline(wb, rows[0], rows[1], date(*map(int, m.groups())))
     wb.save(path)
     return jsonify({"filled": filled})
 

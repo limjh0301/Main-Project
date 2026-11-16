@@ -1,4 +1,5 @@
 import io
+from datetime import datetime
 
 import pytest
 
@@ -43,7 +44,7 @@ def _download(client, body):
 
     res = client.get(body["download_url"])
     assert res.status_code == 200
-    return load_workbook(io.BytesIO(res.data))["관리대장"]
+    return load_workbook(io.BytesIO(res.data)).active
 
 
 ATTACHMENT_PARAGRAPHS = ["※ 9월 28일(월)까지 제출", "기관 개요", " 1) 설립근거", " 2) 주요 연혁", "2. 사업 현황"]
@@ -64,13 +65,15 @@ def test_hwp_attachment_links_to_request_by_doc_no(client, make_hwpx):
     ]
 
     ws = _download(client, body)
-    assert [ws.cell(row=r, column=1).value for r in (2, 3)] == ["0001112223", "0007999174"]
-    assert ws.max_row == 3
+    assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0007999174"]
+    assert ws.max_row == 5
     # 질의 내역은 한 칸에 줄바꿈으로
-    assert ws.cell(row=3, column=8).value.split("\n") == [
+    # 질의서 첫 항목이 제목, 첨부 항목이 질의 내역
+    assert ws.cell(row=5, column=8).value.split("\n") == [
+        "[다음의 자료를 요청합니다]",
         "1-1) [기관 개요] 설립근거", "1-2) [기관 개요] 주요 연혁", "2. 사업 현황",
     ]
-    assert ws.cell(row=3, column=13).value == "[첨부 안내]\n※ 9월 28일(월)까지 제출"
+    assert ws.cell(row=5, column=10).value == "[첨부 안내]\n※ 9월 28일(월)까지 제출"
 
 
 def test_hwp_without_matching_request_is_recorded_alone(client, make_hwpx):
@@ -113,7 +116,7 @@ def test_request_date_falls_back_to_filename_only_when_missing(client):
     body = _post(client, [no_date, with_date]).get_json()
     assert [r["parsed"]["request_date"] for r in body["results"]] == ["2026-09-21", "2026-09-15"]
     ws = _download(client, body)
-    assert ws.cell(row=2, column=3).value == "2026-09-21"
+    assert ws.cell(row=4, column=3).value == datetime(2026, 9, 21)
 
 
 @pytest.mark.parametrize(
@@ -154,20 +157,20 @@ def test_deadline_input_fills_only_target_empty_rows(client, make_hwpx):
     no_deadline = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
     body = _post(client, [with_deadline, (open(no_deadline, "rb"), no_deadline.name)]).get_json()
     target = body["results"][1]
-    assert target["rows"] == [3, 3] and not target["parsed"]["deadline"]
+    assert target["rows"] == [5, 5] and not target["parsed"]["deadline"]
 
     rid = body["download_url"].rsplit("/", 1)[1]
     res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": target["rows"], "deadline": "2026-10-02"}]})
     assert res.status_code == 200 and res.get_json()["filled"] == 1
     ws = _download(client, body)
-    assert [ws.cell(row=r, column=4).value for r in (2, 3)] == ["2026.09.28", "2026.10.02"]
+    assert [ws.cell(row=r, column=4).value for r in (4, 5)] == [datetime(2026, 9, 28), datetime(2026, 10, 2)]
 
 
 @pytest.mark.parametrize("deadline", ["2026.10.02", "2026-02-30", ""])
 def test_deadline_input_rejects_bad_dates(client, deadline):
     body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
     rid = body["download_url"].rsplit("/", 1)[1]
-    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": [2, 2], "deadline": deadline}]})
+    res = client.post(f"/deadline/{rid}", json={"deadlines": [{"rows": [4, 4], "deadline": deadline}]})
     assert res.status_code == 400
 
 
@@ -181,3 +184,45 @@ def test_very_long_request_is_cut_to_excel_cell_limit():
     assert got == items
     assert len(row["content"]) == app_module.EXCEL_CELL_LIMIT
     assert row["content"].endswith("원본 확인)")
+
+
+@pytest.mark.parametrize(
+    "items, content",
+    [
+        # 요구목록 "1. 제목" 아래 세부 질의가 다시 1번부터: 제목을 [ ]로, 세부 내용은 줄을 나눔
+        (["1. 병가 운영 현황 ※ 대상: 연구회 ※ 기간: 25년1월~", "1. 관련 규정 - 병가 사유 - 지급 기준", "2. 사용 현황"],
+         "[병가 운영 현황]\n※ 대상: 연구회\n※ 기간: 25년1월~\n1. 관련 규정\n- 병가 사유\n- 지급 기준\n2. 사용 현황"),
+        (["1. 국정감사 공통자료요구의 건"], "[국정감사 공통자료요구의 건]"),
+        # 1. 2. 3. 이 이어지면 제목 없이 그대로
+        (["1. 업무보고 자료", "2. 예산 설명자료"], "1. 업무보고 자료\n2. 예산 설명자료"),
+        ([], "(요구내용 미추출 — 원본 확인 필요)"),
+    ],
+)
+def test_content_title_and_lines(items, content):
+    assert app_module._build_row({"items": items}, [])[0]["content"] == content
+
+
+def test_standalone_attachment_title_from_filename(client, make_hwpx):
+    hwpx = make_hwpx("0005556667_송기헌의원_공통요구자료_260915.hwpx", ["1. 기관 현황"])
+    body = _post(client, [(open(hwpx, "rb"), hwpx.name)]).get_json()
+    ws = _download(client, body)
+    assert ws.cell(row=4, column=8).value == "[공통요구자료]\n1. 기관 현황"
+
+
+def test_existing_ledger_skips_recorded_requests(client, tmp_path):
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "content": "[기존]"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdfs = [(io.BytesIO(f"요구서번호 : {n}\n1. 요구".encode()), f"{n}.pdf") for n in ("0001112223", "0004445556")]
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": pdfs},
+                      content_type="multipart/form-data")
+    body = res.get_json()
+    assert [r["duplicate"] for r in body["results"]] == [True, False]
+    assert (body["row_count"], body["skipped"]) == (1, 1)
+    assert body["results"][1]["rows"] == [5, 5]
+    ws = _download(client, body)
+    assert [ws.cell(row=r, column=1).value for r in (4, 5)] == [1, 2]
+    assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0004445556"]

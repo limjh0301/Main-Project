@@ -343,6 +343,7 @@ body {
   vertical-align: top;
 }
 .result-file th { background: #f8f7fd; white-space: nowrap; width: 90px; font-weight: 500; }
+.result-file .badge.dup { margin-left: 6px; background: #fdf3e7; color: #b45309; }
 .from-name {
   margin-left: 8px;
   font-size: 11px;

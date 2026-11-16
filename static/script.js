@@ -155,9 +155,10 @@ let lastResult = null;
 
 function renderResult(json) {
   lastResult = json;
-  const missing = json.results.filter((r) => !r.parsed.deadline).length;
+  const missing = json.results.filter((r) => !r.duplicate && !r.parsed.deadline).length;
   const summary = document.getElementById("result-summary");
-  summary.textContent = `요구서 ${json.results.length}건, 관리대장 ${json.row_count}행을 추가했습니다.`;
+  summary.textContent = `요구서 ${json.results.length}건 중 ${json.row_count}건을 관리대장에 추가했습니다.` +
+    (json.skipped ? ` 이미 대장에 있는 ${json.skipped}건은 건너뛰었습니다.` : "");
   if (missing) summary.appendChild(el("span", ` 제출기한이 없는 요구서 ${missing}건은 아래에서 입력해 주세요.`, "warn"));
 
   const filesBox = document.getElementById("result-files");
@@ -166,6 +167,7 @@ function renderResult(json) {
   for (const r of json.results) {
     const h3 = el("h3", `📄 ${r.filename}`);
     h3.appendChild(el("span", METHOD_LABEL[r.method] || "텍스트 추출", "badge"));
+    if (r.duplicate) h3.appendChild(el("span", "이미 대장에 있음 · 건너뜀", "badge dup"));
 
     const table = el("table");
     const addRow = (label, td) => {
@@ -174,7 +176,7 @@ function renderResult(json) {
       table.appendChild(tr);
     };
     for (const { key, label } of CONFIG.fields) {
-      if (key === "deadline" && !r.parsed.deadline) {
+      if (key === "deadline" && !r.parsed.deadline && !r.duplicate) {
         addRow(label, deadlineInput(r));
       } else if (r.parsed[key]) {
         const td = el("td", r.parsed[key]);
@@ -184,7 +186,7 @@ function renderResult(json) {
       }
     }
     if (r.attachments.length > 0) {
-      addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 한 칸에 줄바꿈으로 기록`));
+      addRow("첨부", el("td", `📎 ${r.attachments.join(", ")} — ${r.items.length}개 항목을 내용 칸에 줄바꿈으로 기록`));
     }
     if (r.items.length > 0) {
       // 첨부 항목은 여러 줄이라 첫 줄만 미리 보여준다
