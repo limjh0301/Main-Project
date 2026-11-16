@@ -6,6 +6,11 @@
 .board .b-actions{display:flex;gap:8px;flex-shrink:0}
 .board a.btn{display:inline-flex;align-items:center;text-decoration:none}
 .board .reqs tr.dup td{color:var(--t3)}
+.board .b-learn{margin:12px 0 0;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--t2)}
+.board .b-learn .acc{margin:0}.board .b-learn .acc b{color:var(--t1)}
+.board .sugg{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;margin:0;background:var(--bg2);border-radius:4px}
+.board .sugg b{color:var(--t1);font-weight:600}
+.board .btn.sm{height:26px;padding:0 10px;font-size:12.5px}
 .board .prev{margin:2px 0 0;font-size:12.5px;color:var(--t2)}.board .prev b{font-weight:600;color:var(--t1)}
 .board .use-prev{margin-left:4px;padding:0 6px;height:20px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--t2);font-size:12px;cursor:pointer}
 .board .use-prev:hover{border-color:var(--brand);color:var(--brand)}

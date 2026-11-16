@@ -24,19 +24,24 @@ def _split_text(text: str) -> tuple[str, str, list[str]]:
     return period, main[m.end():] if m else main, [x.lstrip("-*· ").strip() for x in rest if x.strip()]
 
 
-def questions(parsed: dict, attachments: list, title: str) -> list[dict]:
-    """요구서 1건의 질의를 배분한다. 첨부 한글파일이 있으면 첨부 항목이 질의다."""
+def questions(parsed: dict, attachments: list, title: str, learner=None) -> list[dict]:
+    """요구서 1건의 질의를 배분한다. 첨부 한글파일이 있으면 첨부 항목이 질의다.
+
+    learner(learning.Learner)가 있으면 추가 규칙·이전 정정을 반영한다.
+    """
     if attachments:
         items = [item for a in attachments for item in a.items]
-        return assign.plan(assign.attachment_items(items, title), use_siblings=False)
-    _, qs = assign.request_items(parsed.get("items") or [])
-    return assign.plan(qs, use_siblings=True)
+        qs = assign.plan(assign.attachment_items(items, title), use_siblings=False)
+    else:
+        qs = assign.plan(assign.request_items(parsed.get("items") or [])[1], use_siblings=True)
+    return learner.apply(qs) if learner else qs
 
 
-def build(entries: list[dict], names: dict, past=None) -> dict:
+def build(entries: list[dict], names: dict, past=None, learned: dict | None = None) -> dict:
     """entries: tag·parsed·title·questions·rows·duplicate·filename·method 를 가진 요구서 목록.
 
     past: 이전 질의 색인(history.Index) — 있으면 질의마다 기제출 자료 후보(prev)를 붙인다.
+    learned: 배분 정확도(stats)와 규칙 제안(suggestions).
     """
     reqs, items, merged = [], [], 0
     for e in entries:
@@ -57,7 +62,7 @@ def build(entries: list[dict], names: dict, past=None) -> dict:
                 "id": f'{e["tag"]}|{q["key"]}', "req": e["tag"], "key": q["key"],
                 "sec": sec.group(1) if sec else "", "no": sec.group(2) if sec else q["key"],
                 "period": period, "main": main, "rest": rest, "dept": q["dept"], "task": q["task"],
-                "amb": q["ambiguous"], "why": q["why"],
+                "amb": q["ambiguous"], "why": q["why"], "text": q["text"],
             }
             if past is not None and q["dept"] != assign.NA_DEPT and (prev := past.match(q["text"])):
                 item["prev"] = prev
@@ -71,6 +76,7 @@ def build(entries: list[dict], names: dict, past=None) -> dict:
             items.append(item)
     return {
         "reqs": reqs, "items": items, "merged": merged, "roster": names,
+        "learned": learned or {"stats": {"total": 0, "kept": 0, "rate": None}, "suggestions": []},
         "org": [{"name": n, "depts": ds} for n, ds in assign.ORG],
         "fams": [{"name": n, "var": v, "depts": ds} for n, v, ds in assign.FAMILIES],
         "tasks": [{"dept": d, "task": t} for d, t in roster.tasks()],

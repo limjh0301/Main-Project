@@ -6,6 +6,14 @@
   const fmt = (d) => (d ? d.replaceAll("-", ".") : "미정");
   const keyText = (k) => { const m = String(k).match(/^\[(.+?)\]\s*(.*)$/); return m ? `${m[1]} ${m[2]}` : `${k}번`; };
   const $ = (sel) => root.querySelector(sel);
+  // 받침에 맞는 조사: josa("병가", "이", "가") → "병가가", josa("감사부", "으로", "로") → "감사부로"
+  function josa(word, withFinal, withoutFinal) {
+    const c = word.charCodeAt(word.length - 1) - 0xac00;
+    if (c < 0 || c > 11171) return `${word}${withFinal}(${withoutFinal})`;
+    const fin = c % 28;
+    const useFinal = withFinal === "으로" ? fin !== 0 && fin !== 8 : fin !== 0; // ㄹ받침(8)은 '로'
+    return word + (useFinal ? withFinal : withoutFinal);
+  }
 
   let root, D, R, S, KEY, resultId, downloadHref, local, filter = "all";
 
@@ -156,6 +164,36 @@
   let tt;
   function toast(m) { const el = $("#b-toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2600); }
 
+  // ---------- 학습: 정확도·규칙 제안 ----------
+  const IGNORED_KEY = "yogu:ignored-rules";
+  const ignored = () => { try { return JSON.parse(localStorage.getItem(IGNORED_KEY) || "[]"); } catch (_) { return []; } };
+  function renderLearn() {
+    const L = D.learned, st = L.stats, ign = ignored();
+    const sugg = L.suggestions.filter((s) => !ign.includes(`${s.keyword}|${s.dept}`) && !(L.added || []).includes(s.keyword));
+    const parts = [];
+    if (st.total) parts.push(`<p class="acc">지금까지 배분 정확도 <b>${st.rate}%</b> <span class="t3">· 질의 ${st.total}개 중 ${st.kept}개를 초안 그대로 확정</span></p>`);
+    for (const s of sugg) {
+      parts.push(`<p class="sugg" title="${esc(s.examples.join("\n"))}"><span>‘<b>${esc(s.keyword)}</b>’${esc(josa(s.keyword, "이", "가").slice(s.keyword.length))} 들어간 질의를 <b>${esc(s.dept)}</b>${esc(josa(s.dept, "으로", "로").slice(s.dept.length))} ${s.count}번 옮겼습니다. 규칙으로 추가할까요?</span>` +
+        `<button type="button" class="btn sm add-rule" data-k="${esc(s.keyword)}" data-d="${esc(s.dept)}" data-n="${s.count}">규칙 추가</button>` +
+        `<button type="button" class="linkbtn ignore-rule" data-k="${esc(s.keyword)}" data-d="${esc(s.dept)}">무시</button></p>`);
+    }
+    $("#b-learn").innerHTML = parts.join("");
+    $("#b-learn").hidden = !parts.length;
+  }
+  async function addRule(btn) {
+    const kw = btn.dataset.k, dept = btn.dataset.d;
+    try { await post("/rules", { keyword: kw, dept, basis: `정정 ${btn.dataset.n}건` }); } catch (err) { toast(err.message); return; }
+    (D.learned.added ??= []).push(kw);
+    // 이번 분배안에도 바로 적용 (직접 고친 질의는 그대로 둔다)
+    let n = 0;
+    for (const it of D.items) {
+      if (S.dept[it.id] || it.dept === NA || !it.text.includes(kw) || it.dept === dept) continue;
+      S.dept[it.id] = dept; n++;
+    }
+    save(); renderLearn(); render();
+    toast(`규칙을 추가했습니다 · 이번 분배안 ${n}개 질의에 적용, 다음 처리부터 자동 적용`);
+  }
+
   // ---------- 서버 저장 ----------
   async function post(path, body) {
     const res = await fetch(`${path}/${resultId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -176,9 +214,17 @@
     if (updates.length) await post("/dates", { updates });
   }
 
+  // 질의별 모델 배분과 확정 부서를 '배분 이력'에 남긴다 (정확도·규칙 제안의 재료)
+  function logEntries() {
+    const reqs = new Map(live().filter((r) => r.rows).map((r) => [r.tag, r]));
+    return D.items.filter((it) => reqs.has(it.req) && !(it.dept === NA && deptOf(it) === NA)).map((it) => ({
+      doc: reqs.get(it.req).doc || it.req, key: it.key, text: it.text, model: it.dept, final: deptOf(it),
+    }));
+  }
+
   async function download(e, asFile) {
     e.preventDefault();
-    try { await applyDates(); } catch (err) { toast(err.message); return; }
+    try { await applyDates(); await post("/log", { entries: logEntries() }); } catch (err) { toast(err.message); return; }
     const toFile = asFile || !local;
     const empty = live().filter((r) => !dateOf(r, "due")).length;
     if (empty && !confirm(`제출기한이 비어 있는 요구서가 ${empty}건 있습니다. 비워 둔 채로 ${toFile ? "다운로드" : "저장"}할까요?`)) {
@@ -298,6 +344,13 @@
       save(); render(); focusRow(it.id, ".chk"); toast("기제출 자료로 갈음했습니다 — 요청문에서 빠집니다");
       return;
     }
+    const add = e.target.closest(".add-rule");
+    if (add) { addRule(add); return; }
+    const ign = e.target.closest(".ignore-rule");
+    if (ign) {
+      try { localStorage.setItem(IGNORED_KEY, JSON.stringify([...ignored(), `${ign.dataset.k}|${ign.dataset.d}`])); } catch (_) {}
+      renderLearn(); return;
+    }
     const seg = e.target.closest(".seg button");
     if (seg) {
       root.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === seg));
@@ -340,7 +393,7 @@
       filter = "all";
       root.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.f === "all"));
       $("#b-q").value = "";
-      wire(); renderReqs(); render();
+      wire(); renderReqs(); renderLearn(); render();
       root.hidden = false;
       root.scrollIntoView({ behavior: "smooth" });
     },

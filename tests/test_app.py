@@ -338,3 +338,28 @@ def test_local_mode_only_from_this_pc(client, local_ledger):
 
 def test_local_mode_rejects_bad_path(client, local_ledger):
     assert _post_local(client, local_ledger.with_name("없는파일.xlsx")).status_code == 400
+
+
+def test_learning_round_trip_through_endpoints(client, tmp_path):
+    from openpyxl import load_workbook
+
+    pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 칼퇴 현황 일체".encode()), "a.pdf")
+    body = _post(client, [pdf]).get_json()
+    item = body["board"]["items"][0]
+    assert item["text"] == "칼퇴 현황 일체" and body["board"]["learned"]["stats"]["total"] == 0
+    rid = body["download_url"].rsplit("/", 1)[1]
+    entries = [{"doc": "0001112223", "key": item["key"], "text": item["text"], "model": item["dept"], "final": "인재개발실"}]
+    assert client.post(f"/log/{rid}", json={"entries": entries}).get_json() == {"written": 1}
+    assert client.post(f"/rules/{rid}", json={"keyword": "칼퇴", "dept": "인재개발실"}).status_code == 200
+    assert client.post(f"/rules/{rid}", json={"keyword": "칼", "dept": "x"}).status_code == 400
+    assert client.post(f"/log/{rid}", json={"entries": "x"}).status_code == 400
+
+    # 다음 처리: 이력·규칙이 들어 있는 대장을 올리면 규칙이 먼저 적용되고 정확도가 나온다
+    path = tmp_path / "대장.xlsx"
+    path.write_bytes(client.get(body["download_url"]).data)
+    assert {"배분 이력", "배분 추가 규칙"} <= set(load_workbook(path).sheetnames)
+    pdf2 = (io.BytesIO("요구서번호 : 0004445556\n1. 직원 칼퇴 내역".encode()), "b.pdf")
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf2]},
+                      content_type="multipart/form-data").get_json()["board"]
+    assert (res["items"][0]["dept"], res["items"][0]["why"]) == ("인재개발실", "‘칼퇴’ 추가 규칙")
+    assert res["learned"]["stats"] == {"total": 1, "kept": 0, "rate": 0}

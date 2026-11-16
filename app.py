@@ -31,7 +31,7 @@ from extractor.ledger import (
     next_row,
     open_ledger,
 )
-from extractor import board, history, roster
+from extractor import board, history, learning, roster
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -209,6 +209,8 @@ def process():
         rows, results, board_entries = [], [], []
         first_row, recorded = next_row(wb), existing_doc_nos(wb)
         past = history.Index(records(wb))  # 이번에 적기 전의 대장 기록 = 이전 질의
+        log, rules = learning.read_log(wb), learning.read_rules(wb)
+        learner = learning.Learner(log, rules)
         for i, (f, method, parsed, atts) in enumerate(entries):
             att_list = [a for _, a in atts]
             row, items, title = _build_row(parsed, att_list, f.filename)
@@ -233,7 +235,7 @@ def process():
                 "parsed": parsed, "title": title, "filename": f.filename, "method": method,
                 "rows": results[-1]["rows"], "duplicate": duplicate,
                 # 이미 대장에 있는 요구서는 배분도 이미 했을 것이므로 질의를 다시 배분하지 않는다
-                "questions": [] if duplicate else board.questions(parsed, att_list, title),
+                "questions": [] if duplicate else board.questions(parsed, att_list, title, learner),
             })
 
         append_rows(wb, rows)
@@ -253,7 +255,8 @@ def process():
         "skipped": sum(r["duplicate"] for r in results),
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
-        "board": board.build(board_entries, names, past),
+        "board": board.build(board_entries, names, past, {
+            "stats": learning.stats(log), "suggestions": learning.suggestions(log, rules)}),
         "local": {"path": local_path} if mode == "local" else None,
     })
 
@@ -470,6 +473,47 @@ def set_roster(result_id: str):
     roster.write(wb, names)
     wb.save(path)
     return jsonify({"roster": names})
+
+
+def _text(v, limit: int = 2000) -> str:
+    return v.strip()[:limit] if isinstance(v, str) else ""
+
+
+@app.post("/log/<result_id>")
+def save_log(result_id: str):
+    """질의별 모델 배분·확정 부서를 결과 대장의 '배분 이력' 시트에 적는다 (정확도·규칙 제안의 재료)."""
+    path = _result_path(result_id)
+    if not path:
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    entries = (request.get_json(silent=True) or {}).get("entries")
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return jsonify({"error": "배분 이력 형식이 올바르지 않습니다."}), 400
+    entries = [{k: _text(e.get(k), 40 if k != "text" else 2000) for k in ("doc", "key", "text", "model", "final")}
+               for e in entries]
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path)
+    n = learning.write_log(wb, entries)
+    wb.save(path)
+    return jsonify({"written": n})
+
+
+@app.post("/rules/<result_id>")
+def save_rule(result_id: str):
+    """승인한 '키워드 → 부서' 규칙을 결과 대장의 '배분 추가 규칙' 시트에 더한다."""
+    path = _result_path(result_id)
+    if not path:
+        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+    data = request.get_json(silent=True) or {}
+    keyword, dept = _text(data.get("keyword"), 40), _text(data.get("dept"), 40)
+    if len(keyword) < 2 or not dept:
+        return jsonify({"error": "키워드(2글자 이상)와 부서가 필요합니다."}), 400
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path)
+    learning.add_rule(wb, keyword, dept, _text(data.get("basis"), 200))
+    wb.save(path)
+    return jsonify({"rules": learning.read_rules(wb)})
 
 
 def _result_path(result_id: str) -> str | None:
