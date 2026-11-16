@@ -27,6 +27,19 @@ def test_roster_sheet_does_not_disturb_ledger():
     assert next_row(wb) == 5 and wb.active.title != roster.SHEET_NAME
 
 
+def test_sheet_uses_general_manager_label_and_reads_old_label():
+    wb = create_ledger()
+    roster.write(wb, NAMES)
+    ws = wb[roster.SHEET_NAME]
+    kinds = {r[2] for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert "총괄담당자" in kinds and "창구" not in kinds
+    # 예전 대장의 '창구' 표기도 총괄담당자로 읽는다
+    for row in ws.iter_rows(min_row=2):
+        if row[2].value == "총괄담당자":
+            row[2].value = "창구"
+    assert roster.read(wb)["channel"] == {"기획실": "홍길동"}
+
+
 def test_read_without_sheet_is_empty():
     assert roster.read(create_ledger()) == roster.empty()
 

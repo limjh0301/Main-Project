@@ -26,12 +26,12 @@
   const moved = (it) => deptOf(it) !== it.dept;
   const chan = (d) => R.channel[d] || "";
   const taskWorker = (d, task) => R.tasks[`${d}|${task}`] || "";
-  // 부서원 = 창구 + 그 부서 업무 담당자 + 명단에 추가한 부서원
+  // 부서원 = 총괄담당자 + 그 부서 업무 담당자 + 명단에 추가한 부서원
   function members(d) {
     const ppl = D.tasks.filter((t) => t.dept === d).map((t) => taskWorker(d, t.task));
     return [...new Set([chan(d), ...ppl, ...(R.members[d] || [])].filter(Boolean))];
   }
-  // 담당자: 질의별로 고른 사람 > (부서를 옮겼으면) 새 부서 창구·유일한 부서원 > 업무 담당자 > 창구
+  // 담당자: 질의별로 고른 사람 > (부서를 옮겼으면) 새 부서 총괄담당자·유일한 부서원 > 업무 담당자 > 총괄담당자
   function baseWorker(it) {
     if (moved(it)) { const d = deptOf(it), ms = members(d); return chan(d) || (ms.length === 1 ? ms[0] : ""); }
     return taskWorker(it.dept, it.task) || chan(it.dept);
@@ -82,7 +82,7 @@
   }
   function contact(d, grp) {
     const ch = chan(d), ws = [...new Set(grp.map(workerOf).filter(Boolean))];
-    return esc(ch ? `창구 ${ch}` : ws.length ? `담당 ${ws.join(" · ")}` : "담당 미정");
+    return esc(ch ? `총괄담당자 ${ch}` : ws.length ? `담당 ${ws.join(" · ")}` : "담당 미정");
   }
   function copyText(d, grp) {
     const todo = grp.filter((x) => !S.done[x.id]), lines = [`[국회 요구자료 작성 요청] ${d}`];
@@ -258,7 +258,7 @@
         if (!groups.has(w)) groups.set(w, []);
         groups.get(w).push(t.task);
       }
-      const rows = [`<div class="st-r"><span class="ch">창구 담당 <span class="t3">— 요청 취합·안내</span></span>${inp(`ch|${dept}`, chan(dept), `${dept} 창구 담당`, "없음")}</div>`];
+      const rows = [`<div class="st-r"><span class="ch">총괄담당자 <span class="t3">— 요청 취합·안내</span></span>${inp(`ch|${dept}`, chan(dept), `${dept} 총괄담당자`, "없음")}</div>`];
       for (const [w, ts] of groups) rows.push(`<div class="st-r"><span>${esc(ts.join(" · "))}</span>${inp(`w|${dept}|${ts.join("\u0001")}`, w, `${dept} ${ts.join(", ")} 담당자`)}</div>`);
       rows.push(`<div class="st-r"><span>그 밖의 부서원 <span class="t3">— 쉼표로 구분</span></span>${inp(`m|${dept}`, (R.members[dept] || []).join(", "), `${dept} 그 밖의 부서원`, "예: 홍길동, 김철수")}</div>`);
       html += `<section class="st-d" data-q="${esc(`${org} ${dept} ${members(dept).join(" ")} ${[...groups.values()].flat().join(" ")}`)}" style="--c:var(--${fam(dept).var})"><h3><i></i>${esc(dept)}</h3>${rows.join("")}</section>`;

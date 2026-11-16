@@ -4,7 +4,7 @@
 담당자를 채우고, 화면에서 고친 명단은 다운로드하는 대장에 다시 적는다. 엑셀에서 직접 고쳐도 된다.
 
 시트 열: 본부 | 부서 | 구분 | 업무 | 담당자
-  구분 '창구'  : 부서의 대외 요구자료 창구(요청 취합·안내) 담당자
+  구분 '총괄담당자': 부서의 대외 요구자료를 취합·안내하는 담당자 (예전 대장의 '창구'도 읽는다)
   구분 '업무'  : 배분표의 (부서, 업무)를 맡은 실무자
   구분 '부서원': 담당자 선택 목록에 추가로 보여 줄 부서원
 """
@@ -13,7 +13,9 @@ from extractor.assign import NA_DEPT, ORG, TABLE
 
 SHEET_NAME = "부서별 담당자"
 HEADER = ["본부", "부서", "구분", "업무", "담당자"]
-_WIDTHS = [14, 22, 8, 40, 16]
+_WIDTHS = [14, 22, 12, 40, 16]
+CHANNEL_KIND = "총괄담당자"
+_CHANNEL_KINDS = (CHANNEL_KIND, "창구")  # '창구'는 예전 표현
 CHANNEL_TASK = "요청 취합·안내"
 
 
@@ -53,7 +55,7 @@ def read(wb) -> dict:
         _, dept, kind, task, name = (str(v).strip() if v is not None else "" for v in row)
         if not dept or not name:
             continue
-        if kind == "창구":
+        if kind in _CHANNEL_KINDS:
             roster["channel"][dept] = name
         elif kind == "부서원":
             roster["members"].setdefault(dept, [])
@@ -109,7 +111,7 @@ def write(wb, roster: dict) -> None:
 
     rows = []
     for dept in _dept_order(roster):
-        lines = [("창구", CHANNEL_TASK, roster["channel"].get(dept, ""))]
+        lines = [(CHANNEL_KIND, CHANNEL_TASK, roster["channel"].get(dept, ""))]
         lines += by_dept.get(dept, [])
         lines += [("부서원", "", n) for n in roster["members"].get(dept, [])]
         rows += [(org_of(dept), dept, *line) for line in lines]
