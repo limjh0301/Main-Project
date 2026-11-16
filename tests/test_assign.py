@@ -65,3 +65,20 @@ def test_plan_marks_other_sections_and_duplicates():
 def test_no_staff_names_in_routing_table():
     # 담당자 이름은 대장의 '부서별 담당자' 시트에만 둔다 — 배분표는 (카테고리, 키워드, 부서, 업무)
     assert all(len(row) == 4 for row in assign.TABLE)
+
+
+def test_excluded_task_falls_to_next_row_or_default():
+    q = assign.assign([{"text": "병가 사용 관련 복무점검·감사 실시 현황"}], excluded={"감사부|복무감사"})[0]
+    assert (q["dept"], q["task"]) == ("인재개발실", "승진·징계·인사 발령·휴직")  # 징계·복무의 기본 담당
+
+
+def test_all_rows_excluded_is_ambiguous():
+    rows = {f"{d}|{t}" for c, _, d, t in assign.TABLE if c == "L1"}
+    q = assign.assign([{"text": "법률자문 현황"}], excluded=rows)[0]
+    assert q["ambiguous"] and q["dept"] == assign.DEFAULT_DEPT
+
+
+def test_added_task_keywords_win():
+    custom = [{"dept": "감사부", "task": "청탁금지", "keywords": ["김영란법"]}]
+    q = assign.assign([{"text": "김영란법 위반 신고 현황"}], custom=custom)[0]
+    assert (q["dept"], q["task"], q["why"], q["ambiguous"]) == ("감사부", "청탁금지", "‘김영란법’ 추가 업무", False)

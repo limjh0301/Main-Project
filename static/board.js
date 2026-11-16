@@ -26,9 +26,14 @@
   const moved = (it) => deptOf(it) !== it.dept;
   const chan = (d) => R.channel[d] || "";
   const taskWorker = (d, task) => R.tasks[`${d}|${task}`] || "";
+  // 부서의 업무 = 배분표 업무(제외한 것 빼고) + 담당자 설정에서 추가한 업무
+  const deptTasks = (d, src = R) => [
+    ...D.tasks.filter((t) => t.dept === d && !(src.excluded || []).includes(`${d}|${t.task}`)).map((t) => t.task),
+    ...(src.custom || []).filter((c) => c.dept === d).map((c) => c.task),
+  ];
   // 부서원 = 총괄담당자 + 그 부서 업무 담당자 + 명단에 추가한 부서원
   function members(d) {
-    const ppl = D.tasks.filter((t) => t.dept === d).map((t) => taskWorker(d, t.task));
+    const ppl = deptTasks(d).map((t) => taskWorker(d, t));
     return [...new Set([chan(d), ...ppl, ...(R.members[d] || [])].filter(Boolean))];
   }
   // 담당자: 질의별로 고른 사람 > (부서를 옮겼으면) 새 부서 총괄담당자·유일한 부서원 > 업무 담당자 > 총괄담당자
@@ -240,53 +245,111 @@
   }
 
   // ---------- 담당자 설정 ----------
+  // 설정 창에서는 사본(draft)을 고치고, 저장할 때만 명단(R)에 반영한다
+  let draft = null, adding = null;
+  const SEP = "\u0001";
   function settingsDepts() {
     const out = [];
     for (const o of D.org) for (const d of o.depts) out.push({ org: o.name, dept: d });
-    for (const t of D.tasks) if (!out.some((x) => x.dept === t.dept)) out.push({ org: "기타", dept: t.dept });
+    for (const t of [...D.tasks, ...draft.custom]) if (!out.some((x) => x.dept === t.dept)) out.push({ org: "기타", dept: t.dept });
     return out;
+  }
+  const splitList = (v) => [...new Set(v.split(/[,，、]/).map((x) => x.trim()).filter(Boolean))];
+  // 입력 중인 값을 draft에 옮긴다 (다시 그리기 전에 호출해 입력이 지워지지 않게)
+  function collect() {
+    root.querySelectorAll("#b-st-body input[data-k]").forEach((el) => {
+      const [kind, dept, rest] = el.dataset.k.split("|"), v = el.value.trim();
+      if (kind === "ch") { if (v) draft.channel[dept] = v; else delete draft.channel[dept]; }
+      if (kind === "m") { const list = splitList(v); if (list.length) draft.members[dept] = list; else delete draft.members[dept]; }
+      if (kind === "w" || kind === "cw") for (const task of rest.split(SEP)) { if (v) draft.tasks[`${dept}|${task}`] = v; else delete draft.tasks[`${dept}|${task}`]; }
+      if (kind === "ck") { const c = draft.custom.find((x) => x.dept === dept && x.task === rest); if (c) c.keywords = splitList(v); }
+    });
+    if (adding) root.querySelectorAll("#b-st-body [data-new]").forEach((el) => { adding[el.dataset.new] = el.value; });
   }
   function renderSettings() {
     const inp = (k, cur, lbl, ph) => `<input data-k="${esc(k)}" value="${esc(cur)}" placeholder="${esc(ph || "미정")}" aria-label="${esc(lbl)}">`;
+    const tw = (d, t) => draft.tasks[`${d}|${t}`] || "";
     let html = "", lastOrg = "";
     for (const { org, dept } of settingsDepts()) {
       if (org !== lastOrg) { html += `<p class="st-o">${esc(org)}</p>`; lastOrg = org; }
-      // 같은 사람이 맡은 업무를 한 줄로 묶어 사람이 바뀌면 한 번에 고치게 한다
+      const excluded = D.tasks.filter((t) => t.dept === dept && draft.excluded.includes(`${dept}|${t.task}`)).map((t) => t.task);
+      const custom = draft.custom.filter((c) => c.dept === dept);
+      // 같은 사람이 맡은 배분표 업무를 한 줄로 묶어 사람이 바뀌면 한 번에 고치게 한다
       const groups = new Map();
-      for (const t of D.tasks.filter((x) => x.dept === dept)) {
-        const w = taskWorker(dept, t.task);
+      for (const t of D.tasks.filter((x) => x.dept === dept && !excluded.includes(x.task))) {
+        const w = tw(dept, t.task);
         if (!groups.has(w)) groups.set(w, []);
         groups.get(w).push(t.task);
       }
-      const rows = [`<div class="st-r"><span class="ch">총괄담당자 <span class="t3">— 요청 취합·안내</span></span>${inp(`ch|${dept}`, chan(dept), `${dept} 총괄담당자`, "없음")}</div>`];
-      for (const [w, ts] of groups) rows.push(`<div class="st-r"><span>${esc(ts.join(" · "))}</span>${inp(`w|${dept}|${ts.join("\u0001")}`, w, `${dept} ${ts.join(", ")} 담당자`)}</div>`);
-      rows.push(`<div class="st-r"><span>그 밖의 부서원 <span class="t3">— 쉼표로 구분</span></span>${inp(`m|${dept}`, (R.members[dept] || []).join(", "), `${dept} 그 밖의 부서원`, "예: 홍길동, 김철수")}</div>`);
-      html += `<section class="st-d" data-q="${esc(`${org} ${dept} ${members(dept).join(" ")} ${[...groups.values()].flat().join(" ")}`)}" style="--c:var(--${fam(dept).var})"><h3><i></i>${esc(dept)}</h3>${rows.join("")}</section>`;
+      const chip = (t) => `<span class="chip">${esc(t)}<button type="button" class="x-task" data-d="${esc(dept)}" data-t="${esc(t)}" aria-label="${esc(t)} 업무 제외" title="배분에서 제외">×</button></span>`;
+      const rows = [`<div class="st-r"><span class="ch">총괄담당자 <span class="t3">— 요청 취합·안내</span></span>${inp(`ch|${dept}`, draft.channel[dept] || "", `${dept} 총괄담당자`, "없음")}</div>`];
+      for (const [w, ts] of groups) rows.push(`<div class="st-r"><span class="chips">${ts.map(chip).join("")}</span>${inp(`w|${dept}|${ts.join(SEP)}`, w, `${dept} ${ts.join(", ")} 담당자`)}</div>`);
+      for (const c of custom) {
+        rows.push(`<div class="st-r st-custom"><span><span class="chip added">${esc(c.task)}<button type="button" class="del-custom" data-d="${esc(dept)}" data-t="${esc(c.task)}" aria-label="${esc(c.task)} 추가 업무 삭제" title="추가 업무 삭제">×</button></span>` +
+          `<input class="kw" data-k="${esc(`ck|${dept}|${c.task}`)}" value="${esc(c.keywords.join(", "))}" placeholder="키워드 (쉼표로 구분)" aria-label="${esc(c.task)} 키워드"></span>` +
+          `${inp(`cw|${dept}|${c.task}`, tw(dept, c.task), `${dept} ${c.task} 담당자`)}</div>`);
+      }
+      if (adding && adding.dept === dept) {
+        rows.push(`<div class="st-add"><input data-new="task" value="${esc(adding.task || "")}" placeholder="업무 이름 (예: 청탁금지)" aria-label="추가할 업무 이름">` +
+          `<input data-new="keywords" value="${esc(adding.keywords || "")}" placeholder="키워드, 쉼표로 구분 (예: 청탁금지, 김영란법)" aria-label="추가할 업무 키워드">` +
+          `<input data-new="worker" value="${esc(adding.worker || "")}" placeholder="담당자" aria-label="추가할 업무 담당자">` +
+          `<button type="button" class="btn sm primary do-add">추가</button><button type="button" class="linkbtn cancel-add">취소</button></div>`);
+      }
+      rows.push(`<div class="st-r"><span>그 밖의 부서원 <span class="t3">— 쉼표로 구분</span></span>${inp(`m|${dept}`, (draft.members[dept] || []).join(", "), `${dept} 그 밖의 부서원`, "예: 홍길동, 김철수")}</div>`);
+      const foot = [];
+      if (!(adding && adding.dept === dept)) foot.push(`<button type="button" class="linkbtn open-add" data-d="${esc(dept)}">+ 업무 추가</button>`);
+      if (excluded.length) foot.push(`<span class="t3">제외한 업무</span> ` + excluded.map((t) => `<span class="chip off">${esc(t)}<button type="button" class="restore" data-d="${esc(dept)}" data-t="${esc(t)}">되살리기</button></span>`).join(""));
+      rows.push(`<div class="st-foot-d">${foot.join("")}</div>`);
+      const people = [draft.channel[dept], ...deptTasks(dept, draft).map((t) => tw(dept, t)), ...(draft.members[dept] || [])];
+      const q = `${org} ${dept} ${people.join(" ")} ${deptTasks(dept, draft).join(" ")} ${excluded.join(" ")}`;
+      html += `<section class="st-d" data-dept="${esc(dept)}" data-q="${esc(q)}" style="--c:var(--${fam(dept).var})"><h3><i></i>${esc(dept)}</h3>${rows.join("")}</section>`;
     }
     $("#b-st-body").innerHTML = html;
     filterSettings();
   }
   function filterSettings() {
     const t = $("#b-st-q").value.trim();
-    root.querySelectorAll(".st-d").forEach((s) => s.classList.toggle("hide", !!t && !s.dataset.q.includes(t)));
+    root.querySelectorAll(".st-d").forEach((s) => s.classList.toggle("hide", !!t && !s.dataset.q.includes(t) && !(adding && adding.dept === s.dataset.dept)));
     root.querySelectorAll(".st-o").forEach((o) => {
       let n = o.nextElementSibling, any = false;
       while (n && n.classList.contains("st-d")) { any ||= !n.classList.contains("hide"); n = n.nextElementSibling; }
       o.classList.toggle("hide", !any);
     });
   }
+  function rerender(focusSel) {
+    renderSettings();
+    if (focusSel) root.querySelector(focusSel)?.focus();
+  }
+  function onSettingsClick(e) {
+    const b = e.target.closest("button");
+    if (!b || !b.closest("#b-st-body")) return;
+    collect();
+    const d = b.dataset.d, t = b.dataset.t;
+    if (b.classList.contains("x-task")) { draft.excluded.push(`${d}|${t}`); rerender(); }
+    else if (b.classList.contains("restore")) { draft.excluded = draft.excluded.filter((k) => k !== `${d}|${t}`); rerender(); }
+    else if (b.classList.contains("del-custom")) { draft.custom = draft.custom.filter((c) => !(c.dept === d && c.task === t)); rerender(); }
+    else if (b.classList.contains("open-add")) { adding = { dept: d }; rerender(`.st-d[data-dept="${CSS.escape(d)}"] [data-new="task"]`); }
+    else if (b.classList.contains("cancel-add")) { adding = null; rerender(); }
+    else if (b.classList.contains("do-add")) {
+      const task = (adding.task || "").trim(), dept = adding.dept;
+      if (!task) { toast("업무 이름을 입력해 주세요"); rerender(`[data-new="task"]`); return; }
+      if (deptTasks(dept, draft).includes(task)) { toast(`${dept}에 이미 있는 업무입니다`); return; }
+      draft.custom.push({ dept, task, keywords: splitList(adding.keywords || "") });
+      if ((adding.worker || "").trim()) draft.tasks[`${dept}|${task}`] = adding.worker.trim();
+      adding = null; rerender();
+    }
+  }
   async function saveSettings() {
-    const next = { channel: {}, tasks: { ...R.tasks }, members: {} };
-    root.querySelectorAll("#b-st-body input").forEach((el) => {
-      const [kind, dept, rest] = el.dataset.k.split("|"), v = el.value.trim();
-      if (kind === "ch" && v) next.channel[dept] = v;
-      if (kind === "m") { const list = v.split(/[,，、]/).map((x) => x.trim()).filter(Boolean); if (list.length) next.members[dept] = [...new Set(list)]; }
-      if (kind === "w") for (const task of rest.split("\u0001")) { if (v) next.tasks[`${dept}|${task}`] = v; else delete next.tasks[`${dept}|${task}`]; }
-    });
-    const prev = R; R = next;
+    collect();
+    const prev = R; R = draft;
     try { await saveRoster(); } catch (err) { R = prev; toast(err.message); return; }
     $("#b-settings").close(); render();
-    toast("담당자 명단을 저장했습니다 — 다운로드하는 대장의 '부서별 담당자' 시트에 들어갑니다");
+    toast("담당자 명단을 저장했습니다 — 추가·제외한 업무는 다음 처리부터 배분에 반영됩니다");
+  }
+  function openSettings() {
+    draft = JSON.parse(JSON.stringify({ channel: {}, tasks: {}, members: {}, excluded: [], custom: [], ...R }));
+    adding = null;
+    $("#b-st-q").value = ""; renderSettings(); $("#b-settings").showModal();
   }
 
   // ---------- 이벤트 ----------
@@ -374,7 +437,9 @@
         window.Dash.show(j, "방금 처리한 대장");
       } catch (err) { toast(err.message); }
     });
-    $("#b-open-settings").addEventListener("click", () => { $("#b-st-q").value = ""; renderSettings(); $("#b-settings").showModal(); });
+    $("#b-open-settings").addEventListener("click", openSettings);
+    $("#b-st-body").addEventListener("click", onSettingsClick);
+    $("#b-st-body").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.new) { e.preventDefault(); collect(); root.querySelector(".do-add")?.click(); } });
     $("#b-st-q").addEventListener("input", filterSettings);
     $("#b-st-save").addEventListener("click", saveSettings);
     $("#b-reset").addEventListener("click", () => {
@@ -387,7 +452,7 @@
     show(json) {
       root = document.getElementById("board");
       D = json.board;
-      R = { channel: {}, tasks: {}, members: {}, ...D.roster };
+      R = { channel: {}, tasks: {}, members: {}, excluded: [], custom: [], ...D.roster };
       resultId = json.download_url.split("/").pop();
       downloadHref = `${json.download_url}?name=${encodeURIComponent(json.download_name)}`;
       local = json.local || null;

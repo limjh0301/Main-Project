@@ -393,3 +393,25 @@ def test_status_from_uploaded_ledger_and_result(client, tmp_path):
     body = _post(client, [(io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.10.02\n1. 요구".encode()), "a.pdf")]).get_json()
     rid = body["download_url"].rsplit("/", 1)[1]
     assert client.get(f"/status/{rid}").get_json()["records"][0]["deadline"] == "2026-10-02"
+
+
+def test_settings_excluded_and_added_tasks_apply_to_next_run(client, tmp_path):
+    from openpyxl import load_workbook
+
+    from extractor import roster
+
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    names = {"channel": {}, "tasks": {"감사부|청탁금지": "박청렴"}, "members": {},
+             "excluded": ["감사부|복무감사"], "custom": [{"dept": "감사부", "task": "청탁금지", "keywords": ["김영란법"]}]}
+    assert client.post(f"/roster/{rid}", json=names).status_code == 200
+    path = tmp_path / "대장.xlsx"
+    path.write_bytes(client.get(body["download_url"]).data)
+    assert roster.read(load_workbook(path))["custom"] == names["custom"]
+
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 병가\n1. 복무점검 실시 현황\n2. 김영란법 위반 현황".encode()), "b.pdf")
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf]},
+                      content_type="multipart/form-data").get_json()["board"]
+    got = [(i["dept"], i["task"]) for i in res["items"]]
+    assert got == [("인재개발실", "승진·징계·인사 발령·휴직"), ("감사부", "청탁금지")]
+    assert res["roster"]["excluded"] == ["감사부|복무감사"]

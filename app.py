@@ -211,6 +211,7 @@ def process():
         past = history.Index(records(wb))  # 이번에 적기 전의 대장 기록 = 이전 질의
         log, rules = learning.read_log(wb), learning.read_rules(wb)
         learner = learning.Learner(log, rules)
+        names = roster.read(wb)
         for i, (f, method, parsed, atts) in enumerate(entries):
             att_list = [a for _, a in atts]
             row, items, title = _build_row(parsed, att_list, f.filename)
@@ -235,11 +236,10 @@ def process():
                 "parsed": parsed, "title": title, "filename": f.filename, "method": method,
                 "rows": results[-1]["rows"], "duplicate": duplicate,
                 # 이미 대장에 있는 요구서는 배분도 이미 했을 것이므로 질의를 다시 배분하지 않는다
-                "questions": [] if duplicate else board.questions(parsed, att_list, title, learner),
+                "questions": [] if duplicate else board.questions(parsed, att_list, title, learner, names),
             })
 
         append_rows(wb, rows)
-        names = roster.read(wb)
 
         result_id = uuid.uuid4().hex
         out_path = os.path.join(RESULT_DIR, f"{result_id}.xlsx")

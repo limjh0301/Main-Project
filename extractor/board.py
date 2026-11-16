@@ -24,16 +24,18 @@ def _split_text(text: str) -> tuple[str, str, list[str]]:
     return period, main[m.end():] if m else main, [x.lstrip("-*· ").strip() for x in rest if x.strip()]
 
 
-def questions(parsed: dict, attachments: list, title: str, learner=None) -> list[dict]:
+def questions(parsed: dict, attachments: list, title: str, learner=None, names: dict | None = None) -> list[dict]:
     """요구서 1건의 질의를 배분한다. 첨부 한글파일이 있으면 첨부 항목이 질의다.
 
-    learner(learning.Learner)가 있으면 추가 규칙·이전 정정을 반영한다.
+    learner(learning.Learner)가 있으면 추가 규칙·이전 정정을, names(담당자 명단)가 있으면
+    담당자 설정에서 뺀 업무·추가한 업무를 반영한다.
     """
+    opts = {"excluded": set((names or {}).get("excluded", [])), "custom": (names or {}).get("custom", [])}
     if attachments:
         items = [item for a in attachments for item in a.items]
-        qs = assign.plan(assign.attachment_items(items, title), use_siblings=False)
+        qs = assign.plan(assign.attachment_items(items, title), use_siblings=False, **opts)
     else:
-        qs = assign.plan(assign.request_items(parsed.get("items") or [])[1], use_siblings=True)
+        qs = assign.plan(assign.request_items(parsed.get("items") or [])[1], use_siblings=True, **opts)
     return learner.apply(qs) if learner else qs
 
 

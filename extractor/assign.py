@@ -350,9 +350,12 @@ def classify(text: str, context: str = "", title: str = "") -> tuple[str | None,
     return None, "미분류"
 
 
-def route(cat: str, text: str, context: str = "") -> tuple[str, str, str]:
-    """(부서, 업무, 걸린 세부 키워드). 질의 문장 → (일부 업무는) 상위 제목 → 기본 담당 순."""
-    rows = [r for r in TABLE if r[0] == cat]
+def route(cat: str, text: str, context: str = "", excluded=frozenset()) -> tuple[str, str, str]:
+    """(부서, 업무, 걸린 세부 키워드). 질의 문장 → (일부 업무는) 상위 제목 → 기본 담당 순.
+
+    excluded: 담당자 설정에서 뺀 "부서|업무" — 그 줄은 건너뛰고 다음 줄(없으면 기본 담당)로 간다.
+    """
+    rows = [r for r in TABLE if r[0] == cat and f"{r[2]}|{r[3]}" not in excluded]
     for target in (text, context):
         for _, cond, dept, task in rows:
             if target is context and task not in _CONTEXT_OK:
@@ -365,10 +368,11 @@ def route(cat: str, text: str, context: str = "") -> tuple[str, str, str]:
     return "", "", ""
 
 
-def assign(items: list[dict], use_siblings: bool = True) -> list[dict]:
+def assign(items: list[dict], use_siblings: bool = True, excluded=frozenset(), custom=()) -> list[dict]:
     """items(text·context·title)에 cat·how·dept·task·why·ambiguous를 채운다.
 
     use_siblings=False: 공통요구자료처럼 성격이 제각각인 질의 묶음은 다수결 보완을 쓰지 않는다.
+    excluded: 배분에서 뺀 "부서|업무", custom: 추가 업무 [{dept, task, keywords}] — 키워드가 있으면 먼저 적용.
     """
     det = [classify(it["text"], it.get("context", ""), it.get("title", "")) for it in items]
     votes = Counter(c for c, how in det if c and how == "규칙")
@@ -378,9 +382,13 @@ def assign(items: list[dict], use_siblings: bool = True) -> list[dict]:
             cat, how = _sc_rule(it["text"], "슈퍼컴 " + it["text"]), "같은 요구서(슈퍼컴)"
         elif not cat and use_siblings and votes:
             cat, how = votes.most_common(1)[0][0], "같은 요구서"
-        dept, task, kw = route(cat, it["text"], it.get("context", "")) if cat else ("", "", "")
-        ambiguous = how in _AMBIGUOUS_HOW or cat == "X1"
-        if ambiguous:
+        dept, task, kw = route(cat, it["text"], it.get("context", ""), excluded) if cat else ("", "", "")
+        ambiguous = how in _AMBIGUOUS_HOW or cat == "X1" or not dept  # 업무를 모두 빼 갈 곳이 없으면 확인 필요
+        added = next(((c, k) for c in custom for k in c["keywords"] if k in it["text"]), None)
+        if added:
+            (c, k), ambiguous = added, False
+            dept, task, why = c["dept"], c["task"], f"‘{k}’ 추가 업무"
+        elif ambiguous:
             why = "공통자료요구 — 첨부 확인 후 배분" if cat == "X1" else (f"추정: {dept}" if dept else "추정 부서 없음")
             dept, task = DEFAULT_DEPT, ""
         else:
@@ -433,10 +441,10 @@ def attachment_items(items: list[str], title: str = "") -> list[dict]:
     return out
 
 
-def plan(questions: list[dict], use_siblings: bool) -> list[dict]:
+def plan(questions: list[dict], use_siblings: bool, excluded=frozenset(), custom=()) -> list[dict]:
     """질의 목록을 배분하고, 비해당 섹션은 해당없음, 같은 요구서 안의 똑같은 질의는 dup_of로 표시한다."""
     use = [q for q in questions if q["section"] in APPLICABLE_SECTIONS]
-    assign(use, use_siblings=use_siblings)
+    assign(use, use_siblings=use_siblings, excluded=excluded, custom=custom)
     for q in questions:
         if q["section"] not in APPLICABLE_SECTIONS:
             q.update(cat=None, cat_name="-", how="-", dept=NA_DEPT, task="", ambiguous=False,
