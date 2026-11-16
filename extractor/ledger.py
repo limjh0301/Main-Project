@@ -177,6 +177,26 @@ def existing_doc_nos(wb) -> set[str]:
     return {str(v).strip() for _, _, v in _values(ws, header_row, range(col, col + 1))}
 
 
+def records(wb) -> list[dict]:
+    """대장의 기록 행 → doc_no·request_date·member·content·submitted (날짜는 YYYY-MM-DD 문자열).
+
+    이전 질의 찾기(history)의 재료로 쓴다. 순번만 미리 채워 둔 빈 행은 뺀다.
+    """
+    ws, header_row = _locate(wb)
+    submitted_col = HEADER.index("제출일자") + 1
+    cells: dict[int, dict[int, object]] = {}
+    for r, c, v in _values(ws, header_row, range(1, len(COLUMNS) + 1)):
+        cells.setdefault(r, {})[c] = v
+
+    def text(v) -> str:
+        return v.strftime("%Y-%m-%d") if isinstance(v, (date, datetime)) else str(v or "").strip()
+
+    return [{"doc_no": text(row.get(_COL["doc_no"])), "request_date": text(row.get(_COL["request_date"])),
+             "member": text(row.get(_COL["member"])), "content": text(row.get(_COL["content"])),
+             "submitted": text(row.get(submitted_col))}
+            for r, row in sorted(cells.items()) if any(c >= 2 for c in row)]
+
+
 def _to_date(value):
     """'2026-09-21' / '2026.09.28' → date. 날짜가 아니면 원래 값."""
     if isinstance(value, (date, datetime)):

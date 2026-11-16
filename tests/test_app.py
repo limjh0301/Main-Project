@@ -264,3 +264,18 @@ def test_roster_endpoint_writes_sheet_into_result(client):
     wb = load_workbook(io.BytesIO(client.get(body["download_url"]).data))
     assert roster.read(wb)["channel"] == {"기획실": "홍길동"}
     assert client.post(f"/roster/{rid}", json=[1]).status_code == 400
+
+
+def test_board_items_link_previous_questions(client, tmp_path):
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "request_date": "2025-09-18", "member": "을지문덕",
+                      "content": "[2025 공통]\n1. (최근3년간) 예산서, 결산서"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. (최근5년간) 예산서, 결산서".encode()), "b.pdf")
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf]},
+                      content_type="multipart/form-data")
+    prev = res.get_json()["board"]["items"][0]["prev"]
+    assert prev[0]["doc"] == "0001112223" and prev[0]["kind"] == "기간만 다름" and prev[0]["date"] == "2025-09-18"

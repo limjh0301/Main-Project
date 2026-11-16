@@ -33,8 +33,11 @@ def questions(parsed: dict, attachments: list, title: str) -> list[dict]:
     return assign.plan(qs, use_siblings=True)
 
 
-def build(entries: list[dict], names: dict) -> dict:
-    """entries: tag·parsed·title·questions·rows·duplicate·filename·method 를 가진 요구서 목록."""
+def build(entries: list[dict], names: dict, past=None) -> dict:
+    """entries: tag·parsed·title·questions·rows·duplicate·filename·method 를 가진 요구서 목록.
+
+    past: 이전 질의 색인(history.Index) — 있으면 질의마다 기제출 자료 후보(prev)를 붙인다.
+    """
     reqs, items, merged = [], [], 0
     for e in entries:
         p = e["parsed"]
@@ -56,6 +59,8 @@ def build(entries: list[dict], names: dict) -> dict:
                 "period": period, "main": main, "rest": rest, "dept": q["dept"], "task": q["task"],
                 "amb": q["ambiguous"], "why": q["why"],
             }
+            if past is not None and q["dept"] != assign.NA_DEPT and (prev := past.match(q["text"])):
+                item["prev"] = prev
             orig = by_key.get(q.get("dup_of"))
             if orig and orig["dept"] == item["dept"]:
                 # 같은 요구서 안의 똑같은 질의는 원 질의에 합쳐 한 번만 보여 준다 (부서를 옮기면 함께 옮겨짐)

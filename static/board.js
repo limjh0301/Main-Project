@@ -33,6 +33,8 @@
   const reqOf = (tag) => D.reqs.find((r) => r.tag === tag);
   const dateOf = (r, f) => (S.dates[r.tag] || {})[f] ?? r[f];
   const live = () => D.reqs.filter((r) => !r.duplicate);
+  // 이전 질의 표시: "2026.07.13 송기헌 의원 「제목」"
+  const prevLabel = (h) => `${fmt(h.date)} ${h.member ? `${h.member} 의원 ` : ""}「${h.title || h.doc}」`;
 
   // ---------- 그리기 ----------
   function deptOptions(cur) {
@@ -49,21 +51,25 @@
   function rowHtml(it) {
     const d = deptOf(it), isNA = d === NA, done = !!S.done[it.id] && !isNA, w = workerOf(it), k = esc(keyText(it.key));
     const notes = [];
-    if (done) notes.push('<span class="tag">기제출 자료로 갈음</span>');
+    if (done) notes.push('<span class="tag">기제출 자료로 갈음</span>' + (S.src[it.id] ? ` <span class="t3">출처 ${esc(S.src[it.id])}</span>` : ""));
     if (moved(it)) notes.push(`<span class="moved">부서 변경 · 원래 ${esc(it.dept)}</span>`);
     else if (S.wk[it.id] !== undefined) notes.push(`<span class="moved">담당자 변경 · 원래 ${esc(baseWorker(it) || "미정")}</span>`);
     if (it.amb) notes.push('<span class="amb">확인 필요</span>' + (it.why ? ` ${esc(it.why)}` : ""));
     else if (it.why && !moved(it)) notes.push(esc(it.why));
     if (it.same) notes.push("같은 질의 " + it.same.map((x) => esc(keyText(x))).join(", "));
+    const prev = it.prev && !done ? `<p class="prev">` + it.prev.map((h, i) =>
+      `<span title="${esc(`${h.doc} · ${h.text}`)}"><b>이전 질의</b> ${esc(h.kind)} · ${esc(prevLabel(h))}` +
+      (h.submitted ? ` · 제출 ${esc(fmt(h.submitted))}` : "") +
+      ` <button type="button" class="use-prev" data-i="${i}">기제출로 표시</button></span>`).join("<br>") + "</p>" : "";
     const det = it.rest.length
       ? `<details><summary>세부 ${it.rest.length}</summary><ul>${it.rest.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "";
     const asg = `<div class="asg"><span class="sel dsel" title="${esc(d)}"><select class="mv" aria-label="${k} 담당 부서">${deptOptions(d)}</select></span>` +
       (isNA ? "" : `<span class="sel wsel${w ? "" : " none"}" title="${esc(w || "미정")}"><select class="wk" aria-label="${k} 담당자">${workerOptions(d, w)}</select></span>`) + "</div>";
     const chk = isNA ? '<span class="donec"></span>'
       : `<label class="donec"><input type="checkbox" class="chk" aria-label="${k} 기제출 자료로 갈음"${done ? " checked" : ""}><span class="lbl">기제출</span></label>`;
-    return `<li class="row${done ? " is-done" : ""}${it.amb ? " is-amb" : ""}" data-id="${esc(it.id)}" data-s="${esc(d + " " + w)}" data-amb="${+it.amb}" data-dup="${+!!it.same}" data-done="${+done}" data-moved="${+changed(it)}">
+    return `<li class="row${done ? " is-done" : ""}${it.amb ? " is-amb" : ""}" data-id="${esc(it.id)}" data-s="${esc(d + " " + w)}" data-amb="${+it.amb}" data-dup="${+!!it.same}" data-done="${+done}" data-moved="${+changed(it)}" data-prev="${+!!it.prev}">
 <span class="k">${it.sec ? `<span class="sec">${esc(it.sec)}</span>` : ""}${esc(it.no)}</span><span class="per">${esc(it.period)}</span>
-<div class="body"><p class="q">${esc(it.main)}</p>${notes.length ? `<p class="note">${notes.join(" · ")}</p>` : ""}${det}</div>
+<div class="body"><p class="q">${esc(it.main)}</p>${notes.length ? `<p class="note">${notes.join(" · ")}</p>` : ""}${prev}${det}</div>
 <div class="ctl">${asg}${chk}</div></li>`;
   }
   function contact(d, grp) {
@@ -79,7 +85,8 @@
     lines.push("");
     if (!todo.length) lines.push("작성 요청할 질의가 없습니다 (모두 기제출 자료로 갈음).");
     todo.forEach((x, i) => lines.push(`${i + 1}. [${reqOf(x.req).doc || x.req} ${x.key}] ${x.main}` +
-      (x.same ? ` (같은 질의: ${x.same.map(keyText).join(", ")})` : "") + (workerOf(x) ? ` — ${workerOf(x)}` : "")));
+      (x.same ? ` (같은 질의: ${x.same.map(keyText).join(", ")})` : "") +
+      (x.prev ? ` (참고: ${prevLabel(x.prev[0])} 요구와 ${x.prev[0].kind})` : "") + (workerOf(x) ? ` — ${workerOf(x)}` : "")));
     const done = grp.length - todo.length;
     if (done) lines.push("", `※ 기제출 자료로 갈음 ${done}건은 제외했습니다.`);
     return lines.join("\n");
@@ -115,7 +122,7 @@
       depts.filter((d) => fam(d) === f).map((d) => `<a href="#b-d${depts.indexOf(d)}" style="--c:var(--${f.var})"><i></i><span>${esc(d)}</span><span class="t3">${by(d).length}</span></a>`).join("") + "</div>").join("");
     $("#b-na").innerHTML = `<summary>해당없음 ${na.length}건 · 기관 유형 비해당 섹션 등</summary><ul class="rows">${na.map(rowHtml).join("")}</ul>`;
     $("#b-na").hidden = !na.length;
-    const n = { amb: act.filter((x) => x.amb).length, dup: act.filter((x) => x.same).length, done: act.filter((x) => S.done[x.id]).length, moved: D.items.filter(changed).length };
+    const n = { amb: act.filter((x) => x.amb).length, dup: act.filter((x) => x.same).length, prev: act.filter((x) => x.prev).length, done: act.filter((x) => S.done[x.id]).length, moved: D.items.filter(changed).length };
     for (const k in n) { const b = root.querySelector(`.seg [data-f="${k}"] b`); if (b) b.textContent = n[k]; }
     const noDue = live().filter((r) => r.n && !dateOf(r, "due")).length;
     const skipped = D.reqs.length - live().length;
@@ -231,7 +238,7 @@
   function onChange(e) {
     const el = e.target;
     if (el.classList.contains("chk")) {
-      const it = itemOf(el); if (el.checked) S.done[it.id] = 1; else delete S.done[it.id];
+      const it = itemOf(el); if (el.checked) S.done[it.id] = 1; else { delete S.done[it.id]; delete S.src[it.id]; }
       save(); render(); focusRow(it.id, ".chk");
     } else if (el.classList.contains("mv")) {
       const it = itemOf(el), to = el.value;
@@ -272,6 +279,14 @@
       setTimeout(() => { b.textContent = "요청문 복사"; b.classList.remove("done"); }, 1500);
       return;
     }
+    const use = e.target.closest(".use-prev");
+    if (use) {
+      // 이전 질의를 기제출 자료로 갈음: 체크와 출처를 함께 남긴다
+      const it = itemOf(use), h = it.prev[+use.dataset.i];
+      S.done[it.id] = 1; S.src[it.id] = `${prevLabel(h)} (${h.doc})`;
+      save(); render(); focusRow(it.id, ".chk"); toast("기제출 자료로 갈음했습니다 — 요청문에서 빠집니다");
+      return;
+    }
     const seg = e.target.closest(".seg button");
     if (seg) {
       root.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === seg));
@@ -291,7 +306,7 @@
     $("#b-st-save").addEventListener("click", saveSettings);
     $("#b-reset").addEventListener("click", () => {
       if (!confirm("기제출 표시, 부서·담당자 변경, 날짜 수정을 모두 처음 상태로 되돌릴까요?")) return;
-      S = { dept: {}, wk: {}, done: {}, dates: {} }; save(); renderReqs(); render();
+      S = { dept: {}, wk: {}, done: {}, src: {}, dates: {} }; save(); renderReqs(); render();
     });
   }
 
@@ -303,7 +318,7 @@
       resultId = json.download_url.split("/").pop();
       downloadHref = `${json.download_url}?name=${encodeURIComponent(json.download_name)}`;
       KEY = "board:" + D.reqs.map((r) => r.tag).join(",");
-      S = { dept: {}, wk: {}, done: {}, dates: {} };
+      S = { dept: {}, wk: {}, done: {}, src: {}, dates: {} };
       try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v) S = { ...S, ...v }; } catch (_) {}
       filter = "all";
       root.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.f === "all"));

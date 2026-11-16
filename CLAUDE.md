@@ -16,6 +16,7 @@
 | `extractor/ledger.py` | 엑셀 관리대장 생성·누적 — 기관 관리대장 양식(제목 1행·머리글 3행), 기존 대장 이어쓰기·중복 건너뜀 (openpyxl) |
 | `extractor/assign.py` | 질의별 담당 부서 배분 — 카테고리 규칙(RULES) → 세부 배분표(TABLE), 담당자 이름은 넣지 않음 |
 | `extractor/roster.py` | 부서별 담당자 명단 — 대장 파일의 '부서별 담당자' 시트 읽기·쓰기 |
+| `extractor/history.py` | 이전 질의 찾기 — 대장 기록을 질의 단위로 색인, 동일·기간만 다름·유사(TF-IDF) |
 | `extractor/board.py` | 처리 결과 → 분배안 화면 데이터 (`static/board.js`가 그림) |
 | `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (소속 정당 보완, 파일명 의원명 인식) |
 | `templates/`, `static/` | 업로드 UI (KISTI 브랜딩) |

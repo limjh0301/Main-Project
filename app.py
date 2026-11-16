@@ -23,12 +23,13 @@ from extractor.ledger import (
     create_ledger,
     enrich_member_fields,
     existing_doc_nos,
+    records,
     fill_dates,
     member_names,
     next_row,
     open_ledger,
 )
-from extractor import board, roster
+from extractor import board, history, roster
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -189,6 +190,7 @@ def process():
 
         rows, results, board_entries = [], [], []
         first_row, recorded = next_row(wb), existing_doc_nos(wb)
+        past = history.Index(records(wb))  # 이번에 적기 전의 대장 기록 = 이전 질의
         for i, (f, method, parsed, atts) in enumerate(entries):
             att_list = [a for _, a in atts]
             row, items, title = _build_row(parsed, att_list, f.filename)
@@ -229,7 +231,7 @@ def process():
         "skipped": sum(r["duplicate"] for r in results),
         "download_url": f"/download/{result_id}",
         "download_name": _dated_name(base_name),
-        "board": board.build(board_entries, names),
+        "board": board.build(board_entries, names, past),
     })
 
 
