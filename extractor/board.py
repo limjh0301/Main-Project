@@ -39,6 +39,11 @@ def questions(parsed: dict, attachments: list, title: str, learner=None, names: 
     return learner.apply(qs) if learner else qs
 
 
+def org() -> list[dict]:
+    """본부별 부서 목록 — 화면은 본부 순서(i)로 묶고 색(--o{i})을 고른다."""
+    return [{"name": n, "depts": ds, "i": i} for i, (n, ds) in enumerate(assign.ORG)]
+
+
 def build(entries: list[dict], names: dict, past=None, learned: dict | None = None) -> dict:
     """entries: tag·parsed·title·questions·rows·duplicate·filename·method 를 가진 요구서 목록.
 
@@ -79,7 +84,6 @@ def build(entries: list[dict], names: dict, past=None, learned: dict | None = No
     return {
         "reqs": reqs, "items": items, "merged": merged, "roster": names,
         "learned": learned or {"stats": {"total": 0, "kept": 0, "rate": None}, "suggestions": []},
-        "org": [{"name": n, "depts": ds} for n, ds in assign.ORG],
-        "fams": [{"name": n, "var": v, "depts": ds} for n, v, ds in assign.FAMILIES],
+        "org": org(),
         "tasks": [{"dept": d, "task": t} for d, t in roster.tasks()],
     }

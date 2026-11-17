@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>설정 · KISTI 국회 요구자료 관리 프로그램</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='settings.css') }}">
+</head>
+<body>
+  {% with active = 'settings' %}{% include 'partials/topbar.html' %}{% endwith %}
+  <main class="container st-page" id="st">
+    <header class="page-head">
+      <div>
+        <h1>설정</h1>
+        <p class="t3">이 PC의 <code>data/settings.json</code>에 저장되며, 저장하면 다음 파일 처리부터 바로 반영됩니다.</p>
+      </div>
+      <a class="btn" id="st-back" href="/" hidden>결과 화면으로 돌아가기</a>
+    </header>
+
+    <div class="tabs" role="tablist" aria-label="설정 항목">
+      <button type="button" role="tab" class="tab on" data-tab="people" aria-selected="true">부서별 담당자</button>
+      <button type="button" role="tab" class="tab" data-tab="tasks" aria-selected="false">업무 추가·제외</button>
+      <button type="button" role="tab" class="tab" data-tab="rules" aria-selected="false">배분 추가 규칙 <b id="st-n-rules"></b></button>
+    </div>
+
+    <div class="st-tools">
+      <input id="st-q" class="text-input" placeholder="부서, 이름, 업무 검색" aria-label="설정 검색">
+      <p class="t3" id="st-tab-help"></p>
+    </div>
+
+    <div id="st-body" class="st-body" aria-live="polite"></div>
+
+    <div class="savebar" id="st-savebar">
+      <span id="st-state" class="t3">저장된 설정</span>
+      <button type="button" class="btn" id="st-revert" disabled>변경 취소</button>
+      <button type="button" class="btn primary" id="st-save" disabled>저장</button>
+    </div>
+    <div id="st-toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+  <script>window.SETTINGS_META = {{ meta | tojson }};</script>
+  <script src="{{ url_for('static', filename='settings.js') }}"></script>
+</body>
+</html>

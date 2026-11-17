@@ -1,5 +1,5 @@
 // 분배안 보드 — 처리 결과를 부서별로 묶어 보여 주고, 부서·담당자·기제출·날짜를 고치게 한다.
-// 질의별 수정(부서·담당자·기제출)은 이 브라우저에만, 담당자 명단과 날짜는 다운로드하는 대장에 저장된다.
+// 질의별 수정(부서·담당자·기제출)은 이 브라우저에만, 날짜는 대장에 저장된다. 담당자 명단은 설정 화면(/settings)에서 고친다.
 (() => {
   const NA = "해당없음";
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -19,9 +19,9 @@
 
   // ---------- 상태 ----------
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (_) {} };
-  const famIdx = (d) => { const i = D.fams.findIndex((f) => f.depts.includes(d)); return i < 0 ? D.fams.length - 1 : i; };
-  const fam = (d) => D.fams[famIdx(d)];
-  const rank = (d) => { const f = famIdx(d), i = D.fams[f].depts.indexOf(d); return f * 1000 + (i < 0 ? 500 : i); };
+  // 본부: 부서를 본부별로 묶고 본부 색(--o{i})으로 구분한다. 목록에 없는 부서는 마지막 묶음(그 밖의 부서)
+  const orgOf = (d) => D.org.find((o) => o.depts.includes(d)) || D.org[D.org.length - 1];
+  const rank = (d) => { const o = orgOf(d), i = o.depts.indexOf(d); return o.i * 1000 + (i < 0 ? 500 : i); };
   const deptOf = (it) => S.dept[it.id] || it.dept;
   const moved = (it) => deptOf(it) !== it.dept;
   const chan = (d) => R.channel[d] || "";
@@ -89,21 +89,6 @@
     const ch = chan(d), ws = [...new Set(grp.map(workerOf).filter(Boolean))];
     return esc(ch ? `총괄담당자 ${ch}` : ws.length ? `담당 ${ws.join(" · ")}` : "담당 미정");
   }
-  function copyText(d, grp) {
-    const todo = grp.filter((x) => !S.done[x.id]), lines = [`[국회 요구자료 작성 요청] ${d}`];
-    for (const r of D.reqs) {
-      const n = todo.filter((x) => x.req === r.tag).length;
-      if (n) lines.push(`- ${r.title} (${r.doc || "번호 없음"}, 접수일 ${fmt(dateOf(r, "date"))}, 제출기한 ${fmt(dateOf(r, "due"))}) ${n}건`);
-    }
-    lines.push("");
-    if (!todo.length) lines.push("작성 요청할 질의가 없습니다 (모두 기제출 자료로 갈음).");
-    todo.forEach((x, i) => lines.push(`${i + 1}. [${reqOf(x.req).doc || x.req} ${x.key}] ${x.main}` +
-      (x.same ? ` (같은 질의: ${x.same.map(keyText).join(", ")})` : "") +
-      (x.prev ? ` (참고: ${prevLabel(x.prev[0])} 요구와 ${x.prev[0].kind})` : "") + (workerOf(x) ? ` — ${workerOf(x)}` : "")));
-    const done = grp.length - todo.length;
-    if (done) lines.push("", `※ 기제출 자료로 갈음 ${done}건은 제외했습니다.`);
-    return lines.join("\n");
-  }
   function renderReqs() {
     $("#b-reqs").innerHTML = D.reqs.map((r) => {
       const nm = (v, from) => esc(v || "—") + (from ? '<span class="from-name" title="질의서 본문에 없어 파일명에서 가져온 값">파일명</span>' : "");
@@ -126,20 +111,20 @@
       const grp = by(d), reqs = D.reqs.filter((r) => grp.some((x) => x.req === r.tag));
       const nd = grp.filter((x) => S.done[x.id]).length, amb = grp.filter((x) => x.amb).length;
       const blocks = reqs.map((r) => `<div class="rq">${reqs.length > 1 ? `<h3>${esc(r.label)}</h3>` : ""}<ul class="rows">${grp.filter((x) => x.req === r.tag).map(rowHtml).join("")}</ul></div>`).join("");
-      return `<section id="b-d${i}" class="dept" data-dept="${esc(d)}" style="--c:var(--${fam(d).var})">
+      return `<section id="b-d${i}" class="dept" data-dept="${esc(d)}" style="--c:var(--o${orgOf(d).i})">
 <div class="dh"><div><h2>${esc(d)}<span class="count">${grp.length}${nd ? ` · 기제출 ${nd}` : ""}</span>${amb ? `<span class="amb">확인 ${amb}</span>` : ""}</h2>
 <p class="meta"><span class="contacts">${contact(d, grp)}</span>${reqs.length === 1 ? ` <span class="t3">· ${esc(reqs[0].label)}</span>` : ""}</p></div>
-<button type="button" class="copy" data-dept="${esc(d)}">요청문 복사</button></div>${blocks}</section>`;
+<span class="org-tag">${esc(orgOf(d).name)}</span></div>${blocks}</section>`;
     }).join("");
-    $("#b-nav").innerHTML = D.fams.filter((f) => depts.some((d) => fam(d) === f)).map((f) => `<div class="fam"><p class="label">${esc(f.name)}</p>` +
-      depts.filter((d) => fam(d) === f).map((d) => `<a href="#b-d${depts.indexOf(d)}" style="--c:var(--${f.var})"><i></i><span>${esc(d)}</span><span class="t3">${by(d).length}</span></a>`).join("") + "</div>").join("");
+    $("#b-nav").innerHTML = D.org.filter((o) => depts.some((d) => orgOf(d) === o)).map((o) => `<div class="fam" style="--c:var(--o${o.i})"><p class="label">${esc(o.name)}</p>` +
+      depts.filter((d) => orgOf(d) === o).map((d) => `<a href="#b-d${depts.indexOf(d)}"><i></i><span>${esc(d)}</span><span class="t3">${by(d).length}</span></a>`).join("") + "</div>").join("");
     $("#b-na").innerHTML = `<summary>해당없음 ${na.length}건 · 기관 유형 비해당 섹션 등</summary><ul class="rows">${na.map(rowHtml).join("")}</ul>`;
     $("#b-na").hidden = !na.length;
     const n = { amb: act.filter((x) => x.amb).length, dup: act.filter((x) => x.same).length, prev: act.filter((x) => x.prev).length, done: act.filter((x) => S.done[x.id]).length, moved: D.items.filter(changed).length };
     for (const k in n) { const b = root.querySelector(`.seg [data-f="${k}"] b`); if (b) b.textContent = n[k]; }
     const noDue = live().filter((r) => r.n && !dateOf(r, "due")).length;
     const skipped = D.reqs.length - live().length;
-    $("#b-summary").innerHTML = (noDue ? `<span class="amb">제출기한 미입력 ${noDue}건 — 위 표에서 입력해야 요청문을 복사할 수 있습니다</span><br>` : "") +
+    $("#b-summary").innerHTML = (noDue ? `<span class="amb">제출기한 미입력 ${noDue}건 — 위 표에서 입력해 주세요</span><br>` : "") +
       `요구서 <b>${live().length}</b>건 · 질의 <b>${D.items.length + D.merged}</b>개 → <b>${depts.length}</b>개 부서` +
       (n.amb ? ` · <span class="amb">확인 필요 ${n.amb}</span>` : "") + (n.done ? ` · 기제출 갈음 <b>${n.done}</b>` : "") +
       (n.moved ? ` · 배정 변경 <b>${n.moved}</b>` : "") + (D.merged ? ` · 같은 질의 ${D.merged}건 합침` : "") +
@@ -207,10 +192,29 @@
     return json;
   }
   const post = (path, body) => api(`${path}/${resultId}`, body);
-  // 담당자 명단은 앱 설정(data/settings.json)에 저장 — 다음 처리부터 바로 반영된다
-  const saveRoster = () => api("/api/settings", R).then((j) => {
-    const { rules, ...names } = j.settings; R = names;
-  });
+  // 담당자 명단은 앱 설정(data/settings.json)에 있다. 설정 화면에서 저장하면 여기서 다시 읽는다
+  function useSettings(cfg) {
+    const { rules, ...names } = cfg;
+    R = { channel: {}, tasks: {}, members: {}, excluded: [], custom: [], ...names };
+    D.learned.added = [...new Set([...(D.learned.added || []), ...rules.map((r) => r.keyword)])];
+  }
+  async function reloadSettings() {
+    if (!D || root.hidden) return;
+    try {
+      const res = await fetch("/api/settings");
+      if (!res.ok) return;
+      const before = JSON.stringify(R);
+      useSettings((await res.json()).settings);
+      if (JSON.stringify(R) !== before) { render(); toast("담당자 설정을 다시 불러왔습니다"); }
+      renderLearn();
+    } catch (_) {}
+  }
+  // 질의에서 '직접 입력'한 사람을 그 부서원으로 설정에 더한다 (최신 설정에 더해 다른 변경을 덮지 않음)
+  async function addMember(d, name) {
+    const cur = (await (await fetch("/api/settings")).json()).settings;
+    const members = { ...cur.members, [d]: [...new Set([...(cur.members[d] || []), name])] };
+    useSettings((await api("/api/settings", { members })).settings);
+  }
 
   // 표에서 고친 접수일자·제출기한을 결과 대장에 반영
   async function applyDates() {
@@ -279,116 +283,8 @@
       const a = Object.assign(document.createElement("a"), { href: url, download: name });
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast("분장내역 엑셀을 내려받았습니다");
+      toast("분장내역을 엑셀로 출력했습니다");
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
-  }
-
-  // ---------- 담당자 설정 ----------
-  // 설정 창에서는 사본(draft)을 고치고, 저장할 때만 명단(R)에 반영한다
-  let draft = null, adding = null;
-  const SEP = "\u0001";
-  function settingsDepts() {
-    const out = [];
-    for (const o of D.org) for (const d of o.depts) out.push({ org: o.name, dept: d });
-    for (const t of [...D.tasks, ...draft.custom]) if (!out.some((x) => x.dept === t.dept)) out.push({ org: "기타", dept: t.dept });
-    return out;
-  }
-  const splitList = (v) => [...new Set(v.split(/[,，、]/).map((x) => x.trim()).filter(Boolean))];
-  // 입력 중인 값을 draft에 옮긴다 (다시 그리기 전에 호출해 입력이 지워지지 않게)
-  function collect() {
-    root.querySelectorAll("#b-st-body input[data-k]").forEach((el) => {
-      const [kind, dept, rest] = el.dataset.k.split("|"), v = el.value.trim();
-      if (kind === "ch") { if (v) draft.channel[dept] = v; else delete draft.channel[dept]; }
-      if (kind === "m") { const list = splitList(v); if (list.length) draft.members[dept] = list; else delete draft.members[dept]; }
-      if (kind === "w" || kind === "cw") for (const task of rest.split(SEP)) { if (v) draft.tasks[`${dept}|${task}`] = v; else delete draft.tasks[`${dept}|${task}`]; }
-      if (kind === "ck") { const c = draft.custom.find((x) => x.dept === dept && x.task === rest); if (c) c.keywords = splitList(v); }
-    });
-    if (adding) root.querySelectorAll("#b-st-body [data-new]").forEach((el) => { adding[el.dataset.new] = el.value; });
-  }
-  function renderSettings() {
-    const inp = (k, cur, lbl, ph) => `<input data-k="${esc(k)}" value="${esc(cur)}" placeholder="${esc(ph || "미정")}" aria-label="${esc(lbl)}">`;
-    const tw = (d, t) => draft.tasks[`${d}|${t}`] || "";
-    let html = "", lastOrg = "";
-    for (const { org, dept } of settingsDepts()) {
-      if (org !== lastOrg) { html += `<p class="st-o">${esc(org)}</p>`; lastOrg = org; }
-      const excluded = D.tasks.filter((t) => t.dept === dept && draft.excluded.includes(`${dept}|${t.task}`)).map((t) => t.task);
-      const custom = draft.custom.filter((c) => c.dept === dept);
-      // 같은 사람이 맡은 배분표 업무를 한 줄로 묶어 사람이 바뀌면 한 번에 고치게 한다
-      const groups = new Map();
-      for (const t of D.tasks.filter((x) => x.dept === dept && !excluded.includes(x.task))) {
-        const w = tw(dept, t.task);
-        if (!groups.has(w)) groups.set(w, []);
-        groups.get(w).push(t.task);
-      }
-      const chip = (t) => `<span class="chip">${esc(t)}<button type="button" class="x-task" data-d="${esc(dept)}" data-t="${esc(t)}" aria-label="${esc(t)} 업무 제외" title="배분에서 제외">×</button></span>`;
-      const rows = [`<div class="st-r"><span class="ch">총괄담당자 <span class="t3">— 요청 취합·안내</span></span>${inp(`ch|${dept}`, draft.channel[dept] || "", `${dept} 총괄담당자`, "없음")}</div>`];
-      for (const [w, ts] of groups) rows.push(`<div class="st-r"><span class="chips">${ts.map(chip).join("")}</span>${inp(`w|${dept}|${ts.join(SEP)}`, w, `${dept} ${ts.join(", ")} 담당자`)}</div>`);
-      for (const c of custom) {
-        rows.push(`<div class="st-r st-custom"><span><span class="chip added">${esc(c.task)}<button type="button" class="del-custom" data-d="${esc(dept)}" data-t="${esc(c.task)}" aria-label="${esc(c.task)} 추가 업무 삭제" title="추가 업무 삭제">×</button></span>` +
-          `<input class="kw" data-k="${esc(`ck|${dept}|${c.task}`)}" value="${esc(c.keywords.join(", "))}" placeholder="키워드 (쉼표로 구분)" aria-label="${esc(c.task)} 키워드"></span>` +
-          `${inp(`cw|${dept}|${c.task}`, tw(dept, c.task), `${dept} ${c.task} 담당자`)}</div>`);
-      }
-      if (adding && adding.dept === dept) {
-        rows.push(`<div class="st-add"><input data-new="task" value="${esc(adding.task || "")}" placeholder="업무 이름 (예: 청탁금지)" aria-label="추가할 업무 이름">` +
-          `<input data-new="keywords" value="${esc(adding.keywords || "")}" placeholder="키워드, 쉼표로 구분 (예: 청탁금지, 김영란법)" aria-label="추가할 업무 키워드">` +
-          `<input data-new="worker" value="${esc(adding.worker || "")}" placeholder="담당자" aria-label="추가할 업무 담당자">` +
-          `<button type="button" class="btn sm primary do-add">추가</button><button type="button" class="linkbtn cancel-add">취소</button></div>`);
-      }
-      rows.push(`<div class="st-r"><span>그 밖의 부서원 <span class="t3">— 쉼표로 구분</span></span>${inp(`m|${dept}`, (draft.members[dept] || []).join(", "), `${dept} 그 밖의 부서원`, "예: 홍길동, 김철수")}</div>`);
-      const foot = [];
-      if (!(adding && adding.dept === dept)) foot.push(`<button type="button" class="linkbtn open-add" data-d="${esc(dept)}">+ 업무 추가</button>`);
-      if (excluded.length) foot.push(`<span class="t3">제외한 업무</span> ` + excluded.map((t) => `<span class="chip off">${esc(t)}<button type="button" class="restore" data-d="${esc(dept)}" data-t="${esc(t)}">되살리기</button></span>`).join(""));
-      rows.push(`<div class="st-foot-d">${foot.join("")}</div>`);
-      const people = [draft.channel[dept], ...deptTasks(dept, draft).map((t) => tw(dept, t)), ...(draft.members[dept] || [])];
-      const q = `${org} ${dept} ${people.join(" ")} ${deptTasks(dept, draft).join(" ")} ${excluded.join(" ")}`;
-      html += `<section class="st-d" data-dept="${esc(dept)}" data-q="${esc(q)}" style="--c:var(--${fam(dept).var})"><h3><i></i>${esc(dept)}</h3>${rows.join("")}</section>`;
-    }
-    $("#b-st-body").innerHTML = html;
-    filterSettings();
-  }
-  function filterSettings() {
-    const t = $("#b-st-q").value.trim();
-    root.querySelectorAll(".st-d").forEach((s) => s.classList.toggle("hide", !!t && !s.dataset.q.includes(t) && !(adding && adding.dept === s.dataset.dept)));
-    root.querySelectorAll(".st-o").forEach((o) => {
-      let n = o.nextElementSibling, any = false;
-      while (n && n.classList.contains("st-d")) { any ||= !n.classList.contains("hide"); n = n.nextElementSibling; }
-      o.classList.toggle("hide", !any);
-    });
-  }
-  function rerender(focusSel) {
-    renderSettings();
-    if (focusSel) root.querySelector(focusSel)?.focus();
-  }
-  function onSettingsClick(e) {
-    const b = e.target.closest("button");
-    if (!b || !b.closest("#b-st-body")) return;
-    collect();
-    const d = b.dataset.d, t = b.dataset.t;
-    if (b.classList.contains("x-task")) { draft.excluded.push(`${d}|${t}`); rerender(); }
-    else if (b.classList.contains("restore")) { draft.excluded = draft.excluded.filter((k) => k !== `${d}|${t}`); rerender(); }
-    else if (b.classList.contains("del-custom")) { draft.custom = draft.custom.filter((c) => !(c.dept === d && c.task === t)); rerender(); }
-    else if (b.classList.contains("open-add")) { adding = { dept: d }; rerender(`.st-d[data-dept="${CSS.escape(d)}"] [data-new="task"]`); }
-    else if (b.classList.contains("cancel-add")) { adding = null; rerender(); }
-    else if (b.classList.contains("do-add")) {
-      const task = (adding.task || "").trim(), dept = adding.dept;
-      if (!task) { toast("업무 이름을 입력해 주세요"); rerender(`[data-new="task"]`); return; }
-      if (deptTasks(dept, draft).includes(task)) { toast(`${dept}에 이미 있는 업무입니다`); return; }
-      draft.custom.push({ dept, task, keywords: splitList(adding.keywords || "") });
-      if ((adding.worker || "").trim()) draft.tasks[`${dept}|${task}`] = adding.worker.trim();
-      adding = null; rerender();
-    }
-  }
-  async function saveSettings() {
-    collect();
-    const prev = R; R = draft;
-    try { await saveRoster(); } catch (err) { R = prev; toast(err.message); return; }
-    $("#b-settings").close(); render();
-    toast("담당자 명단을 저장했습니다 — 추가·제외한 업무는 다음 처리부터 배분에 반영됩니다");
-  }
-  function openSettings() {
-    draft = JSON.parse(JSON.stringify({ channel: {}, tasks: {}, members: {}, excluded: [], custom: [], ...R }));
-    adding = null;
-    $("#b-st-q").value = ""; renderSettings(); $("#b-settings").showModal();
   }
 
   // ---------- 이벤트 ----------
@@ -411,7 +307,7 @@
       if (v === "__new") {
         v = (prompt(`${d} 담당자 이름을 입력하세요 (다음부터 ${d} 부서원 목록에 나옵니다)`) || "").trim();
         if (!v) { render(); return; }
-        if (!members(d).includes(v)) { R.members[d] = [...(R.members[d] || []), v]; saveRoster().catch((err) => toast(err.message)); }
+        if (!members(d).includes(v)) { R.members[d] = [...(R.members[d] || []), v]; addMember(d, v).catch((err) => toast(err.message)); }
       }
       if (v === baseWorker(it)) delete S.wk[it.id]; else S.wk[it.id] = v;
       save(); render(); focusRow(it.id, ".wk");
@@ -424,26 +320,13 @@
       root.querySelector(`.dt[data-tag="${CSS.escape(r.tag)}"][data-f="${f}"]`)?.focus();
     }
   }
-  async function onClick(e) {
-    const b = e.target.closest(".copy");
-    if (b) {
-      const d = b.dataset.dept, grp = D.items.filter((x) => deptOf(x) === d);
-      const miss = live().find((r) => !dateOf(r, "due") && grp.some((x) => x.req === r.tag && !S.done[x.id]));
-      if (miss) {
-        toast(`「${miss.label}」 제출기한을 먼저 입력해 주세요`);
-        const inp = root.querySelector(`.dt[data-tag="${CSS.escape(miss.tag)}"][data-f="due"]`);
-        inp.scrollIntoView({ block: "center" }); inp.focus(); return;
-      }
-      try { await navigator.clipboard.writeText(copyText(d, grp)); b.textContent = "복사됨"; b.classList.add("done"); } catch (_) { b.textContent = "복사 실패"; }
-      setTimeout(() => { b.textContent = "요청문 복사"; b.classList.remove("done"); }, 1500);
-      return;
-    }
+  function onClick(e) {
     const use = e.target.closest(".use-prev");
     if (use) {
       // 이전 질의를 기제출 자료로 갈음: 체크와 출처를 함께 남긴다
       const it = itemOf(use), h = it.prev[+use.dataset.i];
       S.done[it.id] = 1; S.src[it.id] = `${prevLabel(h)} (${h.doc})`;
-      save(); render(); focusRow(it.id, ".chk"); toast("기제출 자료로 갈음했습니다 — 요청문에서 빠집니다");
+      save(); render(); focusRow(it.id, ".chk"); toast("기제출 자료로 갈음했습니다 — 분장내역에 기제출로 표시됩니다");
       return;
     }
     const add = e.target.closest(".add-rule");
@@ -476,12 +359,10 @@
         window.Dash.show(j, "방금 처리한 대장");
       } catch (err) { toast(err.message); }
     });
-    $("#b-open-settings").addEventListener("click", openSettings);
+    // 설정 화면(새 탭)에서 저장하면 바로, 아니면 이 화면으로 돌아올 때 담당자 명단을 다시 읽는다
+    window.addEventListener("storage", (e) => { if (e.key === "yogu:settings-saved") reloadSettings(); });
+    window.addEventListener("focus", reloadSettings);
     $("#b-export").addEventListener("click", (e) => exportExcel(e.currentTarget));
-    $("#b-st-body").addEventListener("click", onSettingsClick);
-    $("#b-st-body").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.new) { e.preventDefault(); collect(); root.querySelector(".do-add")?.click(); } });
-    $("#b-st-q").addEventListener("input", filterSettings);
-    $("#b-st-save").addEventListener("click", saveSettings);
     $("#b-reset").addEventListener("click", () => {
       if (!confirm("기제출 표시, 부서·담당자 변경, 날짜 수정을 모두 처음 상태로 되돌릴까요?")) return;
       S = { dept: {}, wk: {}, done: {}, src: {}, dates: {} }; save(); renderReqs(); render();

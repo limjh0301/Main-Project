@@ -10,7 +10,7 @@ import re
 from collections import OrderedDict
 from datetime import date
 
-from extractor.assign import FAMILIES, NA_DEPT
+from extractor.assign import NA_DEPT, ORG
 
 TITLE = "국회 요구자료 업무 분장내역"
 MAIN_COLUMNS = [("부서", 16), ("담당자", 10), ("요구서 번호", 13), ("요구의원", 10), ("요구 제목", 28),
@@ -18,7 +18,7 @@ MAIN_COLUMNS = [("부서", 16), ("담당자", 10), ("요구서 번호", 13), ("�
 SUMMARY_COLUMNS = [("부서", 18), ("총괄담당자", 11), ("질의 수", 8), ("작성 요청", 9), ("기제출 갈음", 10),
                    ("가장 이른 제출기한", 15), ("담당자", 40)]
 NA_COLUMNS = [("요구서 번호", 13), ("요구 제목", 28), ("질의 번호", 14), ("질의 내용", 70), ("사유", 30)]
-_ORDER = [d for _, _, depts in FAMILIES for d in depts]
+_ORDER = [d for _, depts in ORG for d in depts]  # 본부 순 → 본부 안 부서 순
 
 
 def _text(v, limit: int = 4000) -> str:

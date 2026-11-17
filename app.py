@@ -34,7 +34,7 @@ from extractor.ledger import (
 )
 import io
 
-from extractor import board, export, history, learning, settings, status
+from extractor import board, export, history, learning, roster, settings, status
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -98,6 +98,13 @@ def index():
         max_pdf=MAX_PDF_COUNT,
         max_hwp=MAX_HWP_COUNT,
     )
+
+
+@app.get("/settings")
+def settings_page():
+    """설정 화면 — 담당자 명단·업무 추가/제외·배분 추가 규칙 (파일을 처리하지 않아도 바로 들어올 수 있다)."""
+    return render_template("settings.html", meta={
+        "org": board.org(), "tasks": [{"dept": d, "task": t} for d, t in roster.tasks()]})
 
 
 @app.post("/process")
