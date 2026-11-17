@@ -187,7 +187,7 @@
   }
   async function addRule(btn) {
     const kw = btn.dataset.k, dept = btn.dataset.d;
-    try { await post("/rules", { keyword: kw, dept, basis: `정정 ${btn.dataset.n}건` }); } catch (err) { toast(err.message); return; }
+    try { await api("/api/settings/rules", { keyword: kw, dept, basis: `정정 ${btn.dataset.n}건` }); } catch (err) { toast(err.message); return; }
     (D.learned.added ??= []).push(kw);
     // 이번 분배안에도 바로 적용 (직접 고친 질의는 그대로 둔다)
     let n = 0;
@@ -200,13 +200,17 @@
   }
 
   // ---------- 서버 저장 ----------
-  async function post(path, body) {
-    const res = await fetch(`${path}/${resultId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  async function api(url, body) {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || "저장하지 못했습니다.");
     return json;
   }
-  const saveRoster = () => post("/roster", R).then((j) => { R = j.roster; });
+  const post = (path, body) => api(`${path}/${resultId}`, body);
+  // 담당자 명단은 앱 설정(data/settings.json)에 저장 — 다음 처리부터 바로 반영된다
+  const saveRoster = () => api("/api/settings", R).then((j) => {
+    const { rules, ...names } = j.settings; R = names;
+  });
 
   // 표에서 고친 접수일자·제출기한을 결과 대장에 반영
   async function applyDates() {

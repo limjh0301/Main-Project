@@ -10,6 +10,15 @@ _SECTION = (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    """테스트가 실제 data/settings.json을 건드리지 않도록 설정 폴더를 임시 폴더로 돌린다."""
+    from extractor import settings
+
+    monkeypatch.setattr(settings, "DATA_DIR", str(tmp_path / "data"))
+    return settings
+
+
 @pytest.fixture
 def make_hwpx(tmp_path):
     """문단 목록으로 최소 구조의 HWPX(ZIP+OWPML) 파일을 만든다."""

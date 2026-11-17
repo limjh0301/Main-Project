@@ -1,8 +1,9 @@
-"""배분 정정 이력 학습 — 담당자가 고친 배분을 대장 파일에 쌓고, 다음 배분에 반영한다.
+"""배분 정정 이력 학습 — 담당자가 고친 배분을 쌓고, 다음 배분에 반영한다.
 
-대장 파일의 두 시트를 쓴다 (담당자 명단처럼 코드가 아니라 사용자의 대장에 보관).
-  '배분 이력'      : 저장·다운로드할 때 질의마다 모델 배분과 확정 부서를 기록 (같은 요구서는 최신으로 교체)
-  '배분 추가 규칙' : 사용자가 승인한 키워드 → 부서 규칙. 기본 규칙보다 먼저 적용
+  '배분 이력' 시트 : 대장 파일에 둔다. 저장·다운로드할 때 질의마다 모델 배분과 확정 부서를 기록
+                    (같은 요구서는 최신으로 교체). 정확도·규칙 제안의 재료
+  배분 추가 규칙   : 사용자가 승인한 키워드 → 부서 규칙. 앱 설정(settings.json)에 보관하며 기본 규칙보다 먼저 적용.
+                    '배분 추가 규칙' 시트는 예전 대장에서 가져오거나 인수인계용으로 내보낼 때만 쓴다
 
 반영 방식
   1) 추가 규칙: 질의에 키워드가 있으면 그 부서
@@ -91,15 +92,18 @@ def stats(log: list[dict]) -> dict:
     return {"total": total, "kept": kept, "rate": round(kept / total * 100) if total else None}
 
 
-# ---------------- 규칙 ----------------
+# ---------------- 규칙 시트 (가져오기·내보내기용) ----------------
 def read_rules(wb) -> list[dict]:
-    return [{"keyword": r[0], "dept": r[1]} for r in _rows(wb, RULE_SHEET, len(RULE_HEADER)) if r[0] and r[1]]
+    return [{"keyword": r[0], "dept": r[1], "added": r[2], "basis": r[3]}
+            for r in _rows(wb, RULE_SHEET, len(RULE_HEADER)) if r[0] and r[1]]
 
 
-def add_rule(wb, keyword: str, dept: str, basis: str = "") -> None:
-    if any(r["keyword"] == keyword for r in read_rules(wb)):
-        return
-    _sheet(wb, RULE_SHEET, RULE_HEADER, [20, 18, 11, 40]).append([keyword, dept, date.today().isoformat(), basis])
+def write_rules(wb, rules: list[dict]) -> None:
+    if RULE_SHEET in wb.sheetnames:
+        del wb[RULE_SHEET]
+    ws = _sheet(wb, RULE_SHEET, RULE_HEADER, [20, 18, 11, 40])
+    for r in rules:
+        ws.append([r["keyword"], r["dept"], r.get("added", ""), r.get("basis", "")])
 
 
 def suggestions(log: list[dict], rules: list[dict], limit: int = 5) -> list[dict]:

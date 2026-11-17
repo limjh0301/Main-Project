@@ -34,7 +34,7 @@ from extractor.ledger import (
 )
 import io
 
-from extractor import board, export, history, learning, roster, status
+from extractor import board, export, history, learning, settings, status
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -207,9 +207,11 @@ def process():
         rows, results, board_entries = [], [], []
         first_row, recorded = next_row(wb), existing_doc_nos(wb)
         past = history.Index(records(wb))  # 이번에 적기 전의 대장 기록 = 이전 질의
-        log, rules = learning.read_log(wb), learning.read_rules(wb)
+        # 담당자 명단·업무 추가/제외·추가 규칙은 앱 설정(data/settings.json)에서, 배분 이력은 대장에서 읽는다
+        cfg = settings.load()
+        log, rules = learning.read_log(wb), cfg["rules"]
         learner = learning.Learner(log, rules)
-        names = roster.read(wb)
+        names = {k: v for k, v in cfg.items() if k != "rules"}
         for i, (f, method, parsed, atts) in enumerate(entries):
             att_list = [a for _, a in atts]
             row, items, title = _build_row(parsed, att_list, f.filename)
@@ -449,22 +451,35 @@ def set_dates(result_id: str):
     return jsonify({"filled": filled})
 
 
-@app.post("/roster/<result_id>")
-def set_roster(result_id: str):
-    """화면에서 고친 부서별 담당자 명단을 결과 엑셀의 '부서별 담당자' 시트에 적는다."""
-    path = _result_path(result_id)
-    if not path:
-        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
+@app.get("/api/settings")
+def get_settings():
+    """앱 설정(담당자 명단·업무 추가/제외·배분 추가 규칙)."""
+    return jsonify({"settings": settings.load(), "exists": settings.exists()})
+
+
+@app.post("/api/settings")
+def put_settings():
+    """설정을 저장한다. 보낸 항목만 바꾸고 나머지는 그대로 둔다 (예: 결과 화면은 명단만 보냄)."""
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return jsonify({"error": "명단 형식이 올바르지 않습니다."}), 400
-    from openpyxl import load_workbook
+        return jsonify({"error": "설정 형식이 올바르지 않습니다."}), 400
+    current = settings.load()
+    merged = {k: data[k] if k in data else v for k, v in current.items()}
+    return jsonify({"settings": settings.save(merged)})
 
-    names = roster.clean(data)
-    wb = load_workbook(path)
-    roster.write(wb, names)
-    wb.save(path)
-    return jsonify({"roster": names})
+
+@app.post("/api/settings/rules")
+def add_setting_rule():
+    """승인한 '키워드 → 부서' 규칙을 설정에 더한다 (같은 키워드는 새 부서로 바꿈). 다음 처리부터 적용."""
+    data = request.get_json(silent=True) or {}
+    keyword, dept = _text(data.get("keyword"), 40), _text(data.get("dept"), 40)
+    if len(keyword) < 2 or not dept:
+        return jsonify({"error": "키워드(2글자 이상)와 부서가 필요합니다."}), 400
+    cfg = settings.load()
+    rules = [r for r in cfg["rules"] if r["keyword"] != keyword]
+    rules.append({"keyword": keyword, "dept": dept, "added": date.today().isoformat(),
+                  "basis": _text(data.get("basis"), 200)})
+    return jsonify({"rules": settings.save({**cfg, "rules": rules})["rules"]})
 
 
 @app.post("/export")
@@ -542,24 +557,6 @@ def save_log(result_id: str):
     n = learning.write_log(wb, entries)
     wb.save(path)
     return jsonify({"written": n})
-
-
-@app.post("/rules/<result_id>")
-def save_rule(result_id: str):
-    """승인한 '키워드 → 부서' 규칙을 결과 대장의 '배분 추가 규칙' 시트에 더한다."""
-    path = _result_path(result_id)
-    if not path:
-        return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
-    data = request.get_json(silent=True) or {}
-    keyword, dept = _text(data.get("keyword"), 40), _text(data.get("dept"), 40)
-    if len(keyword) < 2 or not dept:
-        return jsonify({"error": "키워드(2글자 이상)와 부서가 필요합니다."}), 400
-    from openpyxl import load_workbook
-
-    wb = load_workbook(path)
-    learning.add_rule(wb, keyword, dept, _text(data.get("basis"), 200))
-    wb.save(path)
-    return jsonify({"rules": learning.read_rules(wb)})
 
 
 def _result_path(result_id: str) -> str | None:

@@ -6,3 +6,4 @@ venv/
 !tests/fixtures/*.xlsx
 uploads/
 .pytest_cache/
+data/

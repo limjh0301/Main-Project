@@ -230,12 +230,13 @@ def test_existing_ledger_skips_recorded_requests(client, tmp_path):
     assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0004445556"]
 
 
-def test_board_payload_with_roster_from_ledger(client, tmp_path, make_hwpx):
-    from extractor import roster
+def test_board_payload_with_roster_from_settings(client, tmp_path, make_hwpx):
+    from extractor import roster, settings
     from extractor.ledger import create_ledger
 
+    settings.save({"channel": {"감사부": "김감사"}})
     wb = create_ledger()
-    roster.write(wb, {"channel": {"감사부": "김감사"}, "tasks": {}, "members": {}})
+    roster.write(wb, {"channel": {"기획실": "대장에만있음"}, "tasks": {}, "members": {}})  # 대장 시트는 무시
     path = tmp_path / "대장.xlsx"
     wb.save(path)
     pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 복무점검 실시 현황\n2. 법률자문 현황".encode()), "a.pdf")
@@ -252,18 +253,24 @@ def test_board_payload_with_roster_from_ledger(client, tmp_path, make_hwpx):
         ("0005556667|1", "기획실"), ("0005556667|[학교(과기원 등)] 1", "해당없음")]
 
 
-def test_roster_endpoint_writes_sheet_into_result(client):
-    from extractor import roster
+def test_settings_endpoint_saves_and_merges(client):
+    from extractor import settings
 
-    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
-    rid = body["download_url"].rsplit("/", 1)[1]
-    res = client.post(f"/roster/{rid}", json={"channel": {"기획실": "홍길동"}, "tasks": {}, "members": {}})
+    assert client.get("/api/settings").get_json() == {"settings": settings.empty(), "exists": False}
+    assert client.post("/api/settings/rules", json={"keyword": "칼퇴", "dept": "인재개발실"}).status_code == 200
+    res = client.post("/api/settings", json={"channel": {"기획실": "홍길동"}, "tasks": {}, "members": {}})
     assert res.status_code == 200
+    got = client.get("/api/settings").get_json()
+    assert got["exists"] and got["settings"]["channel"] == {"기획실": "홍길동"}
+    assert [r["keyword"] for r in got["settings"]["rules"]] == ["칼퇴"]  # 명단만 보내도 규칙은 그대로
+    assert client.post("/api/settings", json=[1]).status_code == 400
+
+    # 결과 대장에는 명단 시트를 쓰지 않는다
     from openpyxl import load_workbook
 
-    wb = load_workbook(io.BytesIO(client.get(body["download_url"]).data))
-    assert roster.read(wb)["channel"] == {"기획실": "홍길동"}
-    assert client.post(f"/roster/{rid}", json=[1]).status_code == 400
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    sheets = load_workbook(io.BytesIO(client.get(body["download_url"]).data)).sheetnames
+    assert "부서별 담당자" not in sheets and "배분 추가 규칙" not in sheets
 
 
 def test_board_items_link_previous_questions(client, tmp_path):
@@ -343,14 +350,14 @@ def test_learning_round_trip_through_endpoints(client, tmp_path):
     rid = body["download_url"].rsplit("/", 1)[1]
     entries = [{"doc": "0001112223", "key": item["key"], "text": item["text"], "model": item["dept"], "final": "인재개발실"}]
     assert client.post(f"/log/{rid}", json={"entries": entries}).get_json() == {"written": 1}
-    assert client.post(f"/rules/{rid}", json={"keyword": "칼퇴", "dept": "인재개발실"}).status_code == 200
-    assert client.post(f"/rules/{rid}", json={"keyword": "칼", "dept": "x"}).status_code == 400
+    assert client.post("/api/settings/rules", json={"keyword": "칼퇴", "dept": "인재개발실", "basis": "정정 1건"}).status_code == 200
+    assert client.post("/api/settings/rules", json={"keyword": "칼", "dept": "x"}).status_code == 400
     assert client.post(f"/log/{rid}", json={"entries": "x"}).status_code == 400
 
-    # 다음 처리: 이력·규칙이 들어 있는 대장을 올리면 규칙이 먼저 적용되고 정확도가 나온다
+    # 다음 처리: 이력이 들어 있는 대장을 올리면 설정의 추가 규칙이 먼저 적용되고 정확도가 나온다
     path = tmp_path / "대장.xlsx"
     path.write_bytes(client.get(body["download_url"]).data)
-    assert {"배분 이력", "배분 추가 규칙"} <= set(load_workbook(path).sheetnames)
+    assert "배분 이력" in load_workbook(path).sheetnames
     pdf2 = (io.BytesIO("요구서번호 : 0004445556\n1. 직원 칼퇴 내역".encode()), "b.pdf")
     res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf2]},
                       content_type="multipart/form-data").get_json()["board"]
@@ -388,23 +395,13 @@ def test_status_from_uploaded_ledger_and_result(client, tmp_path):
     assert client.get(f"/status/{rid}").get_json()["records"][0]["deadline"] == "2026-10-02"
 
 
-def test_settings_excluded_and_added_tasks_apply_to_next_run(client, tmp_path):
-    from openpyxl import load_workbook
-
-    from extractor import roster
-
-    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
-    rid = body["download_url"].rsplit("/", 1)[1]
+def test_settings_excluded_and_added_tasks_apply_to_next_run(client):
     names = {"channel": {}, "tasks": {"감사부|청탁금지": "박청렴"}, "members": {},
              "excluded": ["감사부|복무감사"], "custom": [{"dept": "감사부", "task": "청탁금지", "keywords": ["김영란법"]}]}
-    assert client.post(f"/roster/{rid}", json=names).status_code == 200
-    path = tmp_path / "대장.xlsx"
-    path.write_bytes(client.get(body["download_url"]).data)
-    assert roster.read(load_workbook(path))["custom"] == names["custom"]
+    assert client.post("/api/settings", json=names).status_code == 200
 
     pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 병가\n1. 복무점검 실시 현황\n2. 김영란법 위반 현황".encode()), "b.pdf")
-    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf]},
-                      content_type="multipart/form-data").get_json()["board"]
+    res = _post(client, [pdf]).get_json()["board"]  # 앱 재시작 없이 다음 처리부터 반영
     got = [(i["dept"], i["task"]) for i in res["items"]]
     assert got == [("인재개발실", "승진·징계·인사 발령·휴직"), ("감사부", "청탁금지")]
     assert res["roster"]["excluded"] == ["감사부|복무감사"]
