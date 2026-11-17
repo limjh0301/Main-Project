@@ -18,10 +18,17 @@
       <a class="btn" id="st-back" href="/" hidden>결과 화면으로 돌아가기</a>
     </header>
 
+    <div class="first-run" id="st-first" hidden>
+      <div><b>아직 저장된 설정이 없습니다.</b>
+        <span>기존 관리대장에 '부서별 담당자' 시트가 있다면 그대로 가져올 수 있습니다.</span></div>
+      <button type="button" class="btn primary" data-act="pick-import">기존 대장에서 가져오기</button>
+    </div>
+
     <div class="tabs" role="tablist" aria-label="설정 항목">
       <button type="button" role="tab" class="tab on" data-tab="people" aria-selected="true">부서별 담당자</button>
       <button type="button" role="tab" class="tab" data-tab="tasks" aria-selected="false">업무 추가·제외</button>
       <button type="button" role="tab" class="tab" data-tab="rules" aria-selected="false">배분 추가 규칙 <b id="st-n-rules"></b></button>
+      <button type="button" role="tab" class="tab" data-tab="io" aria-selected="false">가져오기·백업</button>
     </div>
 
     <div class="st-tools">
@@ -30,6 +37,7 @@
     </div>
 
     <div id="st-body" class="st-body" aria-live="polite"></div>
+    <input type="file" id="st-import" accept=".xlsx,.xlsm" hidden>
 
     <div class="savebar" id="st-savebar">
       <span id="st-state" class="t3">저장된 설정</span>

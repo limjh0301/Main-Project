@@ -77,3 +77,22 @@
   .st-rules tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; padding: 8px 12px; border-top: 1px solid var(--line2); }
   .st-rules td { border: 0; padding: 0; width: auto !important; }
 }
+
+/* 처음 실행 안내 · 가져오기·백업 */
+.first-run { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; padding: 16px 18px; background: var(--brand-bg); border: 1px solid #cfe2f8; border-radius: 12px; font-size: 13.5px; }
+.first-run b { display: block; color: var(--t1); }
+.first-run span { color: var(--t2); }
+.io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.io { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 8px; }
+.io h3 { font-size: 14.5px; margin: 0 0 4px; }
+.io p { margin: 0 0 12px; font-size: 13px; }
+.bk { list-style: none; margin: 8px 0 0; padding: 0; }
+.bk li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line2); font-size: 13px; }
+.bk li:first-child { border-top: 0; }
+.bk .mono { font-variant-numeric: tabular-nums; }
+@media (max-width: 820px) {
+  .first-run { flex-direction: column; align-items: stretch; }
+  .io-grid { grid-template-columns: 1fr; }
+  .bk li { grid-template-columns: 1fr auto; }
+  .bk li .btn { grid-column: 1 / -1; }
+}

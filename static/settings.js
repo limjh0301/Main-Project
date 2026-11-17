@@ -99,10 +99,32 @@
     people: "업무 담당자를 넣으면 분배안에 자동으로 채워집니다. 비워 두면 총괄담당자가 들어갑니다.",
     tasks: "× 를 누르면 그 업무로는 배분하지 않습니다. 일회성 업무는 키워드와 함께 추가하세요.",
     rules: "질의에 키워드가 들어 있으면 기본 규칙보다 먼저 지정한 부서로 배분합니다.",
+    io: "설정은 저장할 때마다 직전 내용을 백업합니다 (최근 20개).",
   };
+  let backupList = null;
+  const fmtSize = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+  function ioHtml() {
+    const list = backupList === null ? '<p class="t3">백업 목록을 불러오는 중…</p>'
+      : backupList.length ? `<ul class="bk">${backupList.map((b) => `<li><span class="mono">${esc(b.time)}</span><span class="t3">${fmtSize(b.size)}</span>` +
+        `<button type="button" class="btn sm" data-act="restore-backup" data-name="${esc(b.name)}">이 설정으로 되돌리기</button></li>`).join("")}</ul>`
+      : '<p class="t3">아직 백업이 없습니다. 설정을 저장하면 직전 내용이 여기에 쌓입니다.</p>';
+    return `<div class="io-grid">
+<section class="io"><h3>기존 대장에서 가져오기</h3><p class="t3">관리대장(.xlsx)의 '부서별 담당자'·'배분 추가 규칙' 시트를 읽어 현재 설정을 바꿉니다. 바꾸기 전에 내용을 확인합니다.</p>
+<button type="button" class="btn" data-act="pick-import">대장 파일 선택…</button></section>
+<section class="io"><h3>엑셀로 내보내기</h3><p class="t3">저장된 설정을 기존 시트 양식 그대로 엑셀로 받습니다. 인수인계하거나 다른 PC로 옮길 때 쓰세요.</p>
+<a class="btn" href="/api/settings/export" data-act="export">엑셀로 받기</a></section>
+</div>
+<section class="io"><h3>백업에서 되돌리기</h3>${list}</section>`;
+  }
+  async function loadBackups() {
+    try { backupList = (await (await fetch("/api/settings/backups")).json()).backups; } catch (_) { backupList = []; }
+    if (tab === "io") render();
+  }
   function render() {
     $("#st-tab-help").textContent = HELP[tab];
     $("#st-n-rules").textContent = draft.rules.length || "";
+    $("#st-q").hidden = tab === "io";
+    if (tab === "io") { $("#st-body").innerHTML = ioHtml(); return; }
     if (tab === "rules") { $("#st-body").innerHTML = rulesHtml(); filter(); return; }
     let html = "", last = null;
     for (const { org, dept } of depts()) {
@@ -174,6 +196,11 @@
         rerender("#st-rule-kw"); break;
       }
       case "del-rule": draft.rules.splice(+b.dataset.i, 1); rerender(); break;
+      case "pick-import": $("#st-import").click(); break;
+      case "export":
+        if (dirty()) toast("저장하지 않은 변경은 빠집니다 — 저장된 설정을 내보냅니다");
+        break;
+      case "restore-backup": restoreBackup(b.dataset.name, b.closest("li").querySelector(".mono").textContent); break;
     }
   }
 
@@ -186,10 +213,44 @@
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "저장하지 못했습니다.");
       saved = j.settings; draft = clone(saved); adding = null;
+      $("#st-first").hidden = true;
       try { localStorage.setItem(SAVED_KEY, String(Date.now())); } catch (_) {}
-      rerender();
+      rerender(); loadBackups();
       toast(fromResult ? "저장했습니다 — 결과 화면의 담당자 목록에도 반영됩니다" : "저장했습니다 — 다음 파일 처리부터 반영됩니다");
     } catch (err) { toast(err.message); updateBar(); }
+  }
+
+  // ---------- 가져오기·되돌리기 ----------
+  const counts = (m) => `총괄담당자 ${m.channel}명 · 업무 담당 ${m.tasks}건 · 부서원 ${m.members}명 · 제외 업무 ${m.excluded}개 · 추가 업무 ${m.custom}개 · 추가 규칙 ${m.rules}개`;
+  async function importFile(file) {
+    const fd = new FormData(); fd.append("excel", file);
+    try {
+      const res = await fetch("/api/settings/import", { method: "POST", body: fd });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "가져오지 못했습니다.");
+      const msg = `「${file.name}」에서 가져올 내용\n${counts(j.summary)}\n\n현재 설정\n${counts(j.current)}\n\n` +
+        `현재 설정을 가져온 내용으로 덮어씁니다 (현재 설정은 백업에 남습니다).` + (dirty() ? "\n저장하지 않은 변경도 사라집니다." : "") + " 계속할까요?";
+      if (!confirm(msg)) return;
+      const r2 = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(j.settings) });
+      const j2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) throw new Error(j2.error || "저장하지 못했습니다.");
+      afterReplace(j2.settings, "대장에서 설정을 가져왔습니다");
+    } catch (err) { toast(err.message); }
+  }
+  async function restoreBackup(name, when) {
+    if (!confirm(`${when} 백업으로 되돌릴까요? 현재 설정은 백업에 남습니다.` + (dirty() ? "\n저장하지 않은 변경은 사라집니다." : ""))) return;
+    try {
+      const res = await fetch("/api/settings/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "되돌리지 못했습니다.");
+      afterReplace(j.settings, `${when} 설정으로 되돌렸습니다`);
+    } catch (err) { toast(err.message); }
+  }
+  function afterReplace(next, message) {
+    saved = next; draft = clone(next); adding = null;
+    $("#st-first").hidden = true;
+    try { localStorage.setItem(SAVED_KEY, String(Date.now())); } catch (_) {}
+    rerender(); loadBackups(); toast(message);
   }
 
   let tt;
@@ -198,6 +259,7 @@
     tab = name; adding = null;
     document.querySelectorAll(".tab").forEach((x) => { const on = x.dataset.tab === name; x.classList.toggle("on", on); x.setAttribute("aria-selected", on); });
     $("#st-q").placeholder = name === "rules" ? "키워드, 부서 검색" : "부서, 이름, 업무 검색";
+    if (name === "io") loadBackups();
     render();
   }
 
@@ -221,23 +283,19 @@
     if (e.target.id === "st-rule-kw") { e.preventDefault(); document.querySelector('[data-act="add-rule"]')?.click(); }
   });
   $("#st-q").addEventListener("input", filter);
+  $("#st-first").addEventListener("click", onClick);
+  $("#st-import").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importFile(f); });
   $("#st-save").addEventListener("click", saveAll);
   $("#st-revert").addEventListener("click", () => { draft = clone(saved); adding = null; rerender(); });
   window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (dirty()) saveAll(); } });
   window.addEventListener("beforeunload", (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
-
-  window.Settings = {
-    // 가져오기·되돌리기 등 다른 기능이 설정을 통째로 바꿀 때 쓴다
-    replace(next, asSaved) { if (asSaved) saved = clone(next); draft = clone(next); adding = null; rerender(); },
-    current: () => draft, toast,
-  };
 
   (async () => {
     try {
       const res = await fetch("/api/settings");
       const j = await res.json();
       saved = j.settings; draft = clone(saved);
-      document.dispatchEvent(new CustomEvent("settings:loaded", { detail: j }));
+      $("#st-first").hidden = j.exists; // 처음 실행: 기존 대장에서 가져오기 안내
       rerender();
     } catch (_) { $("#st-body").innerHTML = '<p class="err">설정을 불러오지 못했습니다. 프로그램을 다시 실행해 주세요.</p>'; }
   })();
