@@ -282,10 +282,9 @@ def test_board_items_link_previous_questions(client, tmp_path):
 
 
 @pytest.fixture
-def local_ledger(tmp_path, monkeypatch):
+def local_ledger(tmp_path):
     from extractor.ledger import append_rows, create_ledger
 
-    monkeypatch.setitem(app_module.app.config, "LOCAL_MODE", True)
     wb = create_ledger()
     append_rows(wb, [{"doc_no": "0001112223", "content": "[기존]"}])
     path = tmp_path / "대장.xlsx"
@@ -299,15 +298,14 @@ def _post_local(client, path, **kw):
                        content_type="multipart/form-data", **kw)
 
 
-def test_local_mode_hidden_on_server(client, tmp_path):
-    assert "PC의 대장에 바로 저장" not in client.get("/").get_data(as_text=True)
-    assert _post_local(client, tmp_path / "x.xlsx").status_code == 403
+def test_local_mode_is_default_on_page(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'value="local" checked' in html
 
 
 def test_local_mode_saves_into_pc_ledger_with_backup(client, local_ledger):
     from openpyxl import load_workbook
 
-    assert "PC의 대장에 바로 저장" in client.get("/").get_data(as_text=True)
     body = _post_local(client, local_ledger).get_json()
     assert body["local"] == {"path": str(local_ledger)}
     rid = body["download_url"].rsplit("/", 1)[1]
@@ -329,11 +327,6 @@ def test_local_save_refuses_when_ledger_changed(client, local_ledger):
     st = os.stat(local_ledger)
     os.utime(local_ledger, (st.st_atime, st.st_mtime + 5))  # 처리 뒤 엑셀에서 저장한 상황
     assert client.post(f"/save-local/{rid}", json={}).status_code == 409
-
-
-def test_local_mode_only_from_this_pc(client, local_ledger):
-    res = _post_local(client, local_ledger, environ_base={"REMOTE_ADDR": "10.0.0.5"})
-    assert res.status_code == 403
 
 
 def test_local_mode_rejects_bad_path(client, local_ledger):

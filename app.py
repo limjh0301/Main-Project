@@ -4,7 +4,8 @@
 필요한 항목을 파싱해 엑셀 관리대장에 자동으로 누적한다. 질의 항목을 정리한 한글(HWP/HWPX)
 첨부파일을 함께 올리면 해당 질의서에 연결해 첨부의 항목을 질의 내역으로 기록한다.
 요구서 1건 = 관리대장 1행이며, 질의 내역은 한 셀에 줄바꿈으로 넣는다.
-업로드 파일과 결과 엑셀은 처리 후 임시 폴더에서 관리되며 서버에 영구 저장하지 않는다.
+PC 전용 프로그램이다(127.0.0.1에서만 접속). 관리대장은 PC의 엑셀 파일에 바로 이어 쓰고,
+업로드 파일과 결과 엑셀은 처리 후 임시 폴더에서만 관리한다.
 """
 
 import json
@@ -61,8 +62,6 @@ _member_in_name: re.Pattern | None = None
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
-# PC 실행(python app.py · start.bat)에서만 켜는 'PC의 대장에 바로 저장' — 서버 배포(gunicorn)에서는 꺼져 있다
-app.config.setdefault("LOCAL_MODE", False)
 
 RESULT_DIR = os.path.join(tempfile.gettempdir(), "yogu-results")
 os.makedirs(RESULT_DIR, exist_ok=True)
@@ -98,7 +97,6 @@ def index():
         ocr_available=ocr_available(),
         max_pdf=MAX_PDF_COUNT,
         max_hwp=MAX_HWP_COUNT,
-        local_mode=app.config["LOCAL_MODE"],
     )
 
 
@@ -144,8 +142,6 @@ def process():
                 return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
             base_name = os.path.splitext(os.path.basename(excel_file.filename))[0]
         elif mode == "local":
-            if not _is_local_request():
-                return jsonify({"error": "PC의 대장에 바로 저장은 이 PC에서 실행한 앱에서만 쓸 수 있습니다."}), 403
             local_path = _local_ledger_path(request.form.get("local_path", ""))
             if not local_path:
                 return jsonify({"error": "대장 파일 경로를 확인해 주세요. 있는 엑셀 파일(.xlsx)의 전체 경로여야 합니다."}), 400
@@ -263,10 +259,6 @@ def process():
     })
 
 
-def _is_local_request() -> bool:
-    return app.config["LOCAL_MODE"] and request.remote_addr in ("127.0.0.1", "::1")
-
-
 def _local_ledger_path(raw: str) -> str:
     """PC의 대장 경로 검증: 이미 있는 .xlsx/.xlsm 파일의 절대 경로만 받는다."""
     path = os.path.abspath(os.path.expanduser(raw.strip().strip('"')))
@@ -279,9 +271,7 @@ def _meta_path(result_id: str) -> str:
 
 @app.post("/save-local/<result_id>")
 def save_local(result_id: str):
-    """결과 대장(날짜·담당자 명단 반영 후)을 PC의 원래 대장 파일에 덮어쓴다. 직전 내용은 _백업.xlsx로 남긴다."""
-    if not _is_local_request():
-        return jsonify({"error": "이 PC에서 실행한 앱에서만 쓸 수 있습니다."}), 403
+    """결과 대장(날짜 반영 후)을 PC의 원래 대장 파일에 덮어쓴다. 직전 내용은 _백업.xlsx로 남긴다."""
     path = _result_path(result_id)
     if not path or not os.path.isfile(_meta_path(result_id)):
         return jsonify({"error": "결과 파일이 만료되었거나 존재하지 않습니다. 다시 처리해 주세요."}), 404
@@ -501,8 +491,6 @@ def ledger_status():
     mode = request.form.get("mode", "existing")
     try:
         if mode == "local":
-            if not _is_local_request():
-                return jsonify({"error": "PC의 대장은 이 PC에서 실행한 앱에서만 볼 수 있습니다."}), 403
             path = _local_ledger_path(request.form.get("local_path", ""))
             if not path:
                 return jsonify({"error": "대장 파일 경로를 확인해 주세요."}), 400
@@ -609,6 +597,5 @@ if __name__ == "__main__":
             raise SystemExit(0)
 
     # 서버가 뜬 직후 기본 브라우저로 접속 페이지를 자동으로 연다
-    app.config["LOCAL_MODE"] = True  # PC 실행: 'PC의 대장에 바로 저장' 사용 가능 (이 PC에서 온 요청만)
     threading.Timer(0.5, lambda: webbrowser.open(URL)).start()
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="127.0.0.1", port=PORT, debug=False)  # 이 PC에서만 접속 (PC 전용 프로그램)

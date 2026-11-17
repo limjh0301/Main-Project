@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>국회 요구자료 목록화 시스템</title>
+  <title>KISTI 국회 요구자료 관리 프로그램</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
 </head>
@@ -27,26 +27,24 @@
       <section class="step">
         <h2><span class="no">1</span>관리대장</h2>
         <div class="segmented" role="radiogroup" aria-label="관리대장 선택">
-          <label class="segment"><input type="radio" name="mode" value="existing" checked><span>기존 대장에 이어 쓰기</span></label>
-          {% if local_mode %}<label class="segment"><input type="radio" name="mode" value="local"><span>PC의 대장에 바로 저장</span></label>{% endif %}
+          <label class="segment"><input type="radio" name="mode" value="local" checked><span>PC의 대장에 바로 저장</span></label>
+          <label class="segment"><input type="radio" name="mode" value="existing"><span>대장 파일 올려서 처리</span></label>
           <label class="segment"><input type="radio" name="mode" value="new"><span>새 대장 만들기</span></label>
         </div>
 
-        <div id="excel-section" class="mode-panel">
+        <div id="local-section" class="mode-panel">
+          <label class="field-label" for="local-path">대장 파일 경로</label>
+          <input type="text" id="local-path" class="text-input" placeholder="예: D:\국회\2026 국회 요구자료 관리대장.xlsx" autocomplete="off" spellcheck="false">
+          <p class="help">파일 탐색기에서 대장 파일을 Shift+우클릭 → '경로로 복사' 후 붙여 넣으세요. 저장할 때 엑셀에서 대장 파일이 닫혀 있어야 하며,
+            저장 직전 내용은 같은 폴더에 <code>_백업.xlsx</code>로 남깁니다.</p>
+        </div>
+        <div id="excel-section" class="mode-panel" hidden>
           <div class="dropzone" id="excel-drop" tabindex="0" role="button" aria-label="관리대장 엑셀 파일 선택">
             <span id="excel-drop-text">관리 중인 대장(.xlsx)을 끌어다 놓거나 클릭해 선택하세요</span>
           </div>
           <input type="file" id="excel-input" accept=".xlsx,.xlsm" hidden>
           <p class="help">처리가 끝나면 이어 쓴 대장을 내려받습니다. 다음에는 그 파일을 올리면 됩니다.</p>
         </div>
-        {% if local_mode %}
-        <div id="local-section" class="mode-panel" hidden>
-          <label class="field-label" for="local-path">대장 파일 경로</label>
-          <input type="text" id="local-path" class="text-input" placeholder="예: D:\국회\2026 국회 요구자료 관리대장.xlsx" autocomplete="off" spellcheck="false">
-          <p class="help">파일 탐색기에서 대장 파일을 Shift+우클릭 → '경로로 복사' 후 붙여 넣으세요. 저장할 때 엑셀에서 대장 파일이 닫혀 있어야 하며,
-            저장 직전 내용은 같은 폴더에 <code>_백업.xlsx</code>로 남깁니다.</p>
-        </div>
-        {% endif %}
         <div id="new-section" class="mode-panel" hidden>
           <p class="help">기관 관리대장 양식(제목 1행 · 머리글 3행)으로 새 대장을 만듭니다.</p>
         </div>
@@ -147,10 +145,10 @@
     </form></dialog>
   </section>
 
-  <footer class="footer">한국과학기술정보연구원 · 업로드 파일과 결과 엑셀은 처리 후 30분 안에 서버에서 삭제됩니다</footer>
+  <footer class="footer">한국과학기술정보연구원 · 업로드 파일과 결과 엑셀은 처리 후 30분 안에 임시 폴더에서 삭제됩니다</footer>
   <script>
     // 서버가 단일 출처로 관리하는 설정 (업로드 한도)
-    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp, "localMode": local_mode} | tojson }};
+    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp} | tojson }};
   </script>
   <script src="{{ url_for('static', filename='board.js') }}"></script>
   <script src="{{ url_for('static', filename='dashboard.js') }}"></script>

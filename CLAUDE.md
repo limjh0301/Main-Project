@@ -2,8 +2,9 @@
 
 ## 프로젝트 개요
 
-**국회 요구자료 목록화 시스템** — 의정자료전자유통시스템 요구서 PDF를 업로드하면
-텍스트를 추출(스캔본은 OCR 폴백)하고 항목을 파싱해 엑셀 관리대장에 누적하는 Flask 웹 앱.
+**KISTI 국회 요구자료 관리 프로그램** — 의정자료전자유통시스템 요구서 PDF를 올리면
+텍스트를 추출(스캔본은 OCR 폴백)하고 항목을 파싱해 엑셀 관리대장에 누적하는 Flask 앱.
+PC 전용(127.0.0.1)으로 실행하며 서버 배포는 하지 않는다.
 
 ## 구조
 
@@ -23,7 +24,6 @@
 | `extractor/board.py` | 처리 결과 → 분배안 화면 데이터 (`static/board.js`가 그림) |
 | `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (소속 정당 보완, 파일명 의원명 인식) |
 | `templates/`, `static/` | 업로드 UI (KISTI 브랜딩) |
-| `deploy/`, `render.yaml`, `Dockerfile` | 배포 (Render Blueprint / Docker / systemd) |
 | `start.bat`, `start.sh`, `바로가기.html` | 로컬 PC 실행 지원 |
 
 ## 명령어

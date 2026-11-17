@@ -17,8 +17,8 @@ const submitBtn = document.getElementById("submit-btn");
 let excelFile = null;
 let pdfFiles = [];
 
-const localPath = document.getElementById("local-path"); // PC 실행(start.bat)일 때만 있음
-const PANELS = { existing: "excel-section", local: "local-section", new: "new-section" };
+const localPath = document.getElementById("local-path");
+const PANELS = { local: "local-section", existing: "excel-section", new: "new-section" };
 const LOCAL_PATH_KEY = "yogu:local-path";
 
 // 모드 전환: 선택한 방식의 안내·입력 영역만 보인다
@@ -30,9 +30,7 @@ document.querySelectorAll('input[name="mode"]').forEach((radio) => {
     }
   });
 });
-if (localPath) {
-  try { localPath.value = localStorage.getItem(LOCAL_PATH_KEY) || ""; } catch (_) {}
-}
+try { localPath.value = localStorage.getItem(LOCAL_PATH_KEY) || ""; } catch (_) {}
 // 탐색기 '경로로 복사'는 앞뒤에 따옴표가 붙는다
 const cleanPath = (v) => v.trim().replace(/^"(.*)"$/, "$1");
 
