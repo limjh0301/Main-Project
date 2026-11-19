@@ -231,12 +231,11 @@ def test_existing_ledger_skips_recorded_requests(client, tmp_path):
 
 
 def test_board_payload_with_roster_from_settings(client, tmp_path, make_hwpx):
-    from extractor import roster, settings
+    from extractor import settings
     from extractor.ledger import create_ledger
 
     settings.save({"channel": {"감사부": "김감사"}})
     wb = create_ledger()
-    roster.write(wb, {"channel": {"기획실": "대장에만있음"}, "tasks": {}, "members": {}})  # 대장 시트는 무시
     path = tmp_path / "대장.xlsx"
     wb.save(path)
     pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 복무점검 실시 현황\n2. 법률자문 현황".encode()), "a.pdf")
@@ -417,37 +416,3 @@ def test_export_endpoint_returns_workbook(client):
     assert load_workbook(io.BytesIO(res.data))["분장내역"]["A4"].value == "기획실"
     assert client.post("/export", json={"rows": []}).status_code == 400
     assert client.post("/export", json=[1]).status_code == 400
-
-
-def test_settings_import_export_and_restore(client, tmp_path):
-    from openpyxl import load_workbook
-
-    from extractor import learning, roster, settings
-    from extractor.ledger import create_ledger
-
-    wb = create_ledger()
-    roster.write(wb, {"channel": {"기획실": "가상일"}, "tasks": {"감사부|복무감사": "가상이"}, "members": {}})
-    learning.write_rules(wb, [{"keyword": "칼퇴", "dept": "인재개발실", "added": "2026-10-01", "basis": "정정 2건"}])
-    path = tmp_path / "대장.xlsx"
-    wb.save(path)
-
-    # 가져오기는 읽어서 보여 주기만 하고 저장하지 않는다 (화면에서 확인 후 저장)
-    res = client.post("/api/settings/import", data={"excel": (open(path, "rb"), "대장.xlsx")}, content_type="multipart/form-data")
-    body = res.get_json()
-    assert body["summary"]["channel"] == 1 and body["summary"]["rules"] == 1 and body["current"]["channel"] == 0
-    assert not settings.exists()
-    plain = tmp_path / "빈대장.xlsx"
-    create_ledger().save(plain)
-    assert client.post("/api/settings/import", data={"excel": (open(plain, "rb"), "빈대장.xlsx")},
-                       content_type="multipart/form-data").status_code == 400
-    assert client.post("/api/settings/import", data={}, content_type="multipart/form-data").status_code == 400
-
-    client.post("/api/settings", json=body["settings"])
-    exported = load_workbook(io.BytesIO(client.get("/api/settings/export").data))
-    assert settings.from_workbook(exported) == settings.load()
-
-    # 되돌리기: 저장 직전 설정이 백업에 남는다
-    client.post("/api/settings", json={"channel": {}})
-    (b,) = client.get("/api/settings/backups").get_json()["backups"]
-    assert client.post("/api/settings/restore", json={"name": b["name"]}).get_json()["settings"]["channel"] == {"기획실": "가상일"}
-    assert client.post("/api/settings/restore", json={"name": "../settings.json"}).status_code == 404

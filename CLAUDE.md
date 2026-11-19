@@ -16,8 +16,8 @@ PC 전용(127.0.0.1)으로 실행하며 서버 배포는 하지 않는다.
 | `extractor/parser.py` | 요구서 항목 파싱, 첨부 한글파일 항목 분리 (정규식) |
 | `extractor/ledger.py` | 엑셀 관리대장 생성·누적 — 기관 관리대장 양식(제목 1행·머리글 3행), 기존 대장 이어쓰기·중복 건너뜀 (openpyxl) |
 | `extractor/assign.py` | 질의별 담당 부서 배분 — 카테고리 규칙(RULES) → 세부 배분표(TABLE), 담당자 이름은 넣지 않음 |
-| `extractor/settings.py` | 앱 설정 저장소 — `data/settings.json`(명단·업무 추가/제외·추가 규칙), 저장 전 백업 20개, 대장 시트 가져오기·내보내기 |
-| `extractor/roster.py` | 부서별 담당자 명단 구조 — 정리(clean)와 '부서별 담당자' 시트 양식 읽기·쓰기(가져오기·내보내기용) |
+| `extractor/settings.py` | 앱 설정 저장소 — `data/settings.json`(부서원·분장표·업무 추가/제외·추가 규칙) |
+| `extractor/roster.py` | 부서원·분장 명단 구조 — 배분표 업무 목록(tasks), 정리(clean) |
 | `extractor/history.py` | 이전 질의 찾기 — 대장 기록을 질의 단위로 색인, 동일·기간만 다름·유사(TF-IDF) |
 | `extractor/learning.py` | 배분 정정 학습 — 대장의 '배분 이력' 시트, 정확도·규칙 제안, 추가 규칙·이전 정정 반영 |
 | `extractor/status.py` | 마감 현황 데이터 (`static/dashboard.js`가 D-day를 사용자 PC 날짜로 계산) |

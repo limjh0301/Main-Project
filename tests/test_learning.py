@@ -44,12 +44,10 @@ def test_learner_applies_rules_then_previous_corrections():
     assert not qs[0]["ambiguous"]
 
 
-def test_log_and_rules_round_trip_in_workbook():
+def test_log_round_trip_in_workbook():
     wb = create_ledger()
     learning.write_log(wb, [{k: v for k, v in r.items() if k != "date"} for r in LOG])
     # 같은 요구서를 다시 저장하면 그 요구서 기록만 교체
     learning.write_log(wb, [{"doc": "0003", "key": "2", "text": "복무점검 대상", "model": "감사부", "final": "기획실"}])
     log = learning.read_log(wb)
     assert [(r["doc"], r["final"]) for r in log] == [("0001", "감사부"), ("0002", "감사부"), ("0003", "기획실")]
-    learning.write_rules(wb, [{"keyword": "복무점검", "dept": "감사부", "added": "2026-10-01", "basis": "정정 2건"}])
-    assert learning.read_rules(wb) == [{"keyword": "복무점검", "dept": "감사부", "added": "2026-10-01", "basis": "정정 2건"}]

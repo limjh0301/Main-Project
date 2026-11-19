@@ -489,49 +489,6 @@ def add_setting_rule():
     return jsonify({"rules": settings.save({**cfg, "rules": rules})["rules"]})
 
 
-@app.post("/api/settings/import")
-def import_settings():
-    """기존 대장의 '부서별 담당자'·'배분 추가 규칙' 시트를 읽어 보여 준다. 저장은 화면에서 확인한 뒤 /api/settings로."""
-    from openpyxl import load_workbook
-
-    f = request.files.get("excel")
-    if not f or not f.filename.lower().endswith((".xlsx", ".xlsm")):
-        return jsonify({"error": "대장 엑셀 파일(.xlsx)을 선택해 주세요."}), 400
-    try:
-        wb = load_workbook(f.stream, read_only=False)
-    except Exception:
-        return jsonify({"error": "엑셀 파일을 열 수 없습니다. 파일이 손상되었는지 확인해 주세요."}), 400
-    if roster.SHEET_NAME not in wb.sheetnames and learning.RULE_SHEET not in wb.sheetnames:
-        return jsonify({"error": f"'{roster.SHEET_NAME}'·'{learning.RULE_SHEET}' 시트가 없는 파일입니다."}), 400
-    data = settings.from_workbook(wb)
-    return jsonify({"settings": data, "summary": settings.summary(data), "current": settings.summary(settings.load())})
-
-
-@app.get("/api/settings/export")
-def export_settings():
-    """현재 설정을 기존 시트 양식('부서별 담당자'·'배분 추가 규칙') 엑셀로 내려준다 (인수인계용)."""
-    buf = io.BytesIO()
-    settings.to_workbook(settings.load()).save(buf)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, download_name=f"담당자설정_{date.today():%y%m%d}.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-
-@app.get("/api/settings/backups")
-def list_setting_backups():
-    return jsonify({"backups": settings.backups()})
-
-
-@app.post("/api/settings/restore")
-def restore_settings():
-    """백업 파일의 설정으로 되돌린다 (되돌리기 직전 설정도 백업됨)."""
-    try:
-        restored = settings.restore(_text((request.get_json(silent=True) or {}).get("name"), 80))
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    return jsonify({"settings": restored})
-
-
 @app.post("/export")
 def export_assignments():
     """결과 화면에서 최종 확인한 업무 분장내역을 엑셀로 내려준다 (서버에 저장하지 않음)."""

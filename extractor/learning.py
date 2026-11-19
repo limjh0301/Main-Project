@@ -2,8 +2,7 @@
 
   '배분 이력' 시트 : 대장 파일에 둔다. 저장·다운로드할 때 질의마다 모델 배분과 확정 부서를 기록
                     (같은 요구서는 최신으로 교체). 정확도·규칙 제안의 재료
-  배분 추가 규칙   : 사용자가 승인한 키워드 → 부서 규칙. 앱 설정(settings.json)에 보관하며 기본 규칙보다 먼저 적용.
-                    '배분 추가 규칙' 시트는 예전 대장에서 가져오거나 인수인계용으로 내보낼 때만 쓴다
+  배분 추가 규칙   : 사용자가 승인한 키워드 → 부서 규칙. 앱 설정(settings.json)에 보관하며 기본 규칙보다 먼저 적용
 
 반영 방식
   1) 추가 규칙: 질의에 키워드가 있으면 그 부서
@@ -21,8 +20,6 @@ from extractor.assign import NA_DEPT
 
 LOG_SHEET = "배분 이력"
 LOG_HEADER = ["기록일", "요구서 번호", "질의 번호", "질의", "모델 배분", "확정 부서"]
-RULE_SHEET = "배분 추가 규칙"
-RULE_HEADER = ["키워드", "부서", "추가일", "근거"]
 
 SUGGEST_MIN = 2         # 같은 부서로 고친 횟수가 이 이상인 단어만 제안
 SUGGEST_PRECISION = 0.8  # 그 단어가 들어간 질의 중 그 부서로 확정된 비율
@@ -90,20 +87,6 @@ def stats(log: list[dict]) -> dict:
     total = len(log)
     kept = sum(r["model"] == r["final"] for r in log)
     return {"total": total, "kept": kept, "rate": round(kept / total * 100) if total else None}
-
-
-# ---------------- 규칙 시트 (가져오기·내보내기용) ----------------
-def read_rules(wb) -> list[dict]:
-    return [{"keyword": r[0], "dept": r[1], "added": r[2], "basis": r[3]}
-            for r in _rows(wb, RULE_SHEET, len(RULE_HEADER)) if r[0] and r[1]]
-
-
-def write_rules(wb, rules: list[dict]) -> None:
-    if RULE_SHEET in wb.sheetnames:
-        del wb[RULE_SHEET]
-    ws = _sheet(wb, RULE_SHEET, RULE_HEADER, [20, 18, 11, 40])
-    for r in rules:
-        ws.append([r["keyword"], r["dept"], r.get("added", ""), r.get("basis", "")])
 
 
 def suggestions(log: list[dict], rules: list[dict], limit: int = 5) -> list[dict]:
