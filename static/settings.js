@@ -30,22 +30,25 @@
   const card = (org, dept, q, inner) =>
     `<section class="st-d" data-dept="${esc(dept)}" data-q="${esc(q)}" style="--c:var(--o${org.i})"><h3><i></i>${esc(dept)}</h3>${inner}</section>`;
 
+  // 부서에서 이미 입력한 사람들 — 업무 담당자 입력칸의 자동완성 목록
+  const deptPeople = (dept) => [...new Set([draft.channel[dept], ...activeTasks(dept).map((t) => worker(dept, t)),
+    ...(draft.members[dept] || [])].filter(Boolean))];
+  const dlId = (dept) => `dl-${encodeURIComponent(dept).replace(/%/g, "")}`;
+  const dlOptions = (dept) => deptPeople(dept).map((n) => `<option value="${esc(n)}">`).join("");
+
   function peopleHtml(org, dept) {
-    // 같은 사람이 맡은 업무를 한 줄로 묶어, 사람이 바뀌면 한 번에 고치게 한다
-    const groups = new Map();
-    for (const t of activeTasks(dept)) {
-      const w = worker(dept, t);
-      if (!groups.has(w)) groups.set(w, []);
-      groups.get(w).push(t);
-    }
+    // 업무마다 담당자를 따로 지정한다 (비워 두면 분배안에서 총괄담당자가 들어감)
+    const tasks = activeTasks(dept), list = dlId(dept);
+    const taskInp = (t) => `<input class="in" data-k="${esc(`w|${dept}|${t}`)}" value="${esc(worker(dept, t))}" placeholder="(총괄담당자)" list="${list}" aria-label="${esc(`${dept} ${t} 담당자`)}">`;
+    const done = tasks.filter((t) => worker(dept, t)).length;
     const rows = [`<div class="st-r"><span class="lab strong">총괄담당자 <span class="t3">요청 취합·안내</span></span>${inp(`ch|${dept}`, draft.channel[dept] || "", `${dept} 총괄담당자`, "없음")}</div>`];
-    for (const [w, ts] of groups) {
-      rows.push(`<div class="st-r"><span class="chips">${ts.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</span>` +
-        `${inp(`w|${dept}|${ts.join(SEP)}`, w, `${dept} ${ts.join(", ")} 담당자`)}</div>`);
+    if (tasks.length) {
+      rows.push(`<div class="st-sub"><span class="lab strong">업무별 담당자</span><span class="t3">${done}/${tasks.length} 지정</span></div>` +
+        `<div class="st-tasks">${tasks.map((t) => `<div class="st-t"><span class="tn" title="${esc(t)}">${esc(t)}</span>${taskInp(t)}</div>`).join("")}</div>`);
     }
     rows.push(`<div class="st-r"><span class="lab">그 밖의 부서원 <span class="t3">쉼표로 구분</span></span>${inp(`m|${dept}`, (draft.members[dept] || []).join(", "), `${dept} 그 밖의 부서원`, "예: 홍길동, 김철수", "wide")}</div>`);
-    const people = [draft.channel[dept], ...activeTasks(dept).map((t) => worker(dept, t)), ...(draft.members[dept] || [])];
-    return card(org, dept, `${org.name} ${dept} ${people.join(" ")} ${activeTasks(dept).join(" ")}`, rows.join(""));
+    rows.push(`<datalist id="${list}">${dlOptions(dept)}</datalist>`);
+    return card(org, dept, `${org.name} ${dept} ${deptPeople(dept).join(" ")} ${tasks.join(" ")}`, rows.join(""));
   }
 
   function tasksHtml(org, dept) {
@@ -96,7 +99,7 @@
   }
 
   const HELP = {
-    people: "업무 담당자를 넣으면 분배안에 자동으로 채워집니다. 비워 두면 총괄담당자가 들어갑니다.",
+    people: "업무마다 담당자를 지정하면 그 업무로 배분된 질의에 자동으로 채워집니다. 비워 두면 총괄담당자가 들어갑니다.",
     tasks: "× 를 누르면 그 업무로는 배분하지 않습니다. 일회성 업무는 키워드와 함께 추가하세요.",
     rules: "질의에 키워드가 들어 있으면 기본 규칙보다 먼저 지정한 부서로 배분합니다.",
     io: "설정은 저장할 때마다 직전 내용을 백업합니다 (최근 20개).",
@@ -165,6 +168,13 @@
     else if (kind === "ck") { const c = draft.custom.find((x) => x.dept === a && x.task === b); if (c) c.keywords = splitList(v); }
     else if (kind === "rk") draft.rules[+a].keyword = v;
     else if (kind === "rd") draft.rules[+a].dept = v;
+    // 입력을 마치면 그 부서의 자동완성 목록과 지정 수를 새로 고친다
+    if (e.type === "change" && tab === "people" && ["ch", "m", "w"].includes(kind)) {
+      const card = el.closest(".st-d"), dl = card?.querySelector("datalist");
+      if (dl) dl.innerHTML = dlOptions(a);
+      const cnt = card?.querySelector(".st-sub .t3"), ts = activeTasks(a);
+      if (cnt) cnt.textContent = `${ts.filter((t) => worker(a, t)).length}/${ts.length} 지정`;
+    }
     updateBar();
   }
   function rerender(focusSel) { render(); updateBar(); if (focusSel) document.querySelector(focusSel)?.focus(); }
