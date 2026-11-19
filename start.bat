@@ -4,10 +4,20 @@ cd /d "%~dp0"
 rem 설치가 이미 확인된 경우: 검사 없이 곧바로 실행 (빠른 시작)
 if exist .venv\ready.ok goto run
 
-where python >nul 2>nul
-if errorlevel 1 goto nopython
+rem Python 찾기: PATH의 python → py 런처 → 기본 설치 폴더 순서
+rem (PATH에 없으면 Microsoft Store 바로가기만 걸리므로 다른 경로도 확인한다)
+set "PY="
+python --version >nul 2>nul
+if not errorlevel 1 set "PY=python"
+if defined PY goto havepy
+py -3 --version >nul 2>nul
+if not errorlevel 1 set "PY=py -3"
+if defined PY goto havepy
+for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3*") do if exist "%%~D\python.exe" set "PY="%%~D\python.exe""
+if not defined PY goto nopython
 
-python --version
+:havepy
+%PY% --version
 if errorlevel 1 goto nopython
 
 rem 가상환경이 없거나 손상된 경우 다시 설치
@@ -16,7 +26,7 @@ if exist .venv\Scripts\python.exe goto checkpkg
 echo.
 echo [준비 1/2] 가상환경을 만드는 중... (30초~1분, 백신 검사로 더 걸릴 수 있음)
 if exist .venv rmdir /s /q .venv
-python -m venv .venv
+%PY% -m venv .venv
 if not exist .venv\Scripts\python.exe goto venvfail
 echo [준비 1/2] 가상환경 생성 완료
 
@@ -59,6 +69,8 @@ echo.
 echo [오류] Python이 설치되어 있지 않거나 실행할 수 없습니다.
 echo https://www.python.org/downloads/ 에서 Python 3.10 이상을 설치하세요.
 echo 설치할 때 "Add Python to PATH" 옵션을 반드시 체크해야 합니다.
+echo 이미 설치했다면 Python 설치 프로그램을 다시 실행해 "Modify"에서
+echo "Add Python to environment variables"를 체크하거나, 재설치하며 PATH 옵션을 체크하세요.
 echo.
 echo 참고: 시작메뉴의 "앱 실행 별칭" 설정에서 python.exe 별칭이 켜져 있으면
 echo Microsoft Store 창만 뜨고 실행이 안 될 수 있습니다. 별칭을 끄고 다시 시도하세요.
