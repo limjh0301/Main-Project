@@ -16,8 +16,8 @@ PC 전용(127.0.0.1)으로 실행하며 서버 배포는 하지 않는다.
 | `extractor/parser.py` | 요구서 항목 파싱, 첨부 한글파일 항목 분리 (정규식) |
 | `extractor/ledger.py` | 엑셀 관리대장 생성·누적 — 기관 관리대장 양식(제목 1행·머리글 3행), 기존 대장 이어쓰기·중복 건너뜀 (openpyxl) |
 | `extractor/assign.py` | 질의별 담당 부서 배분 — 카테고리 규칙(RULES) → 세부 배분표(TABLE), 담당자 이름은 넣지 않음 |
-| `extractor/settings.py` | 앱 설정 저장소 — `data/settings.json`(부서원·분장표·업무 추가/제외·추가 규칙) |
-| `extractor/roster.py` | 부서원·분장 명단 구조 — 배분표 업무 목록(tasks), 정리(clean) |
+| `extractor/settings.py` | 앱 설정 저장소 — `data/settings.json`(부서원·분장표·업무 추가/제외·부서 구성·추가 규칙) |
+| `extractor/roster.py` | 부서원·분장 명단 구조 — 배분표 업무 목록(tasks), 부서 구성(org)·통합(merged → resolver), 정리(clean) |
 | `extractor/history.py` | 이전 질의 찾기 — 대장 기록을 질의 단위로 색인, 동일·기간만 다름·유사(TF-IDF) |
 | `extractor/learning.py` | 배분 정정 학습 — 대장의 '배분 이력' 시트, 정확도·규칙 제안, 추가 규칙·이전 정정 반영 |
 | `extractor/status.py` | 마감 현황 데이터 (`static/dashboard.js`가 D-day를 사용자 PC 날짜로 계산) |
@@ -40,6 +40,7 @@ python app.py                     # 로컬 실행 (http://127.0.0.1:5000)
 - 커밋: conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 - 브랜치: `feature/…`, `fix/…`, AI 작업은 `claude/<session-id>`
 - 관리대장 열 구조는 `ledger.py`의 `COLUMNS`가 단일 출처 — 헤더·미리보기·검증이 모두 여기서 파생됨
+- 조직개편(부서 이름 변경·통폐합)은 `assign.TABLE`을 고치지 않고 설정의 `merged`로 처리 — 배분 결과에는 `roster.resolver`를 거친 부서가 나감
 - `start.bat`은 CP949 인코딩 유지 (한글 Windows 콘솔용)
 - 직원 이름·연락처는 코드·테스트·커밋에 넣지 않는다 — 담당자 명단은 `data/settings.json`(gitignore)에만 둔다, 테스트는 가상 이름 사용
 - 기존 코드를 읽고 스타일을 맞출 것, 요청 범위 밖 변경 금지, 시크릿 커밋 금지

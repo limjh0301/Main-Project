@@ -30,18 +30,22 @@ def questions(parsed: dict, attachments: list, title: str, learner=None, names: 
     learner(learning.Learner)가 있으면 추가 규칙·이전 정정을, names(담당자 명단)가 있으면
     담당자 설정에서 뺀 업무·추가한 업무를 반영한다.
     """
-    opts = {"excluded": set((names or {}).get("excluded", [])), "custom": (names or {}).get("custom", [])}
+    names = names or {}
+    resolve = roster.resolver(names.get("merged"))
+    opts = {"excluded": set(names.get("excluded", [])), "custom": names.get("custom", []), "resolve": resolve}
     if attachments:
         items = [item for a in attachments for item in a.items]
         qs = assign.plan(assign.attachment_items(items, title), use_siblings=False, **opts)
     else:
         qs = assign.plan(assign.request_items(parsed.get("items") or [])[1], use_siblings=True, **opts)
-    return learner.apply(qs) if learner else qs
-
-
-def org() -> list[dict]:
-    """본부별 부서 목록 — 화면은 본부 순서(i)로 묶고 색(--o{i})을 고른다."""
-    return [{"name": n, "depts": ds, "i": i} for i, (n, ds) in enumerate(assign.ORG)]
+    if learner:
+        learner.apply(qs)
+        # 추가 규칙·이전 정정이 가리키는 부서를 그 뒤에 없앴으면 넘겨받은 부서로 (없으면 확인 필요)
+        for q in qs:
+            if q["dept"] != assign.NA_DEPT and (now := resolve(q["dept"])) != q["dept"]:
+                q.update(dept=now or (resolve(assign.DEFAULT_DEPT) or assign.DEFAULT_DEPT), task="",
+                         ambiguous=not now, why=q["why"] if now else f"없앤 부서({q['dept']}) — 확인 필요")
+    return qs
 
 
 def build(entries: list[dict], names: dict, past=None, learned: dict | None = None) -> dict:
@@ -84,6 +88,6 @@ def build(entries: list[dict], names: dict, past=None, learned: dict | None = No
     return {
         "reqs": reqs, "items": items, "merged": merged, "roster": names,
         "learned": learned or {"stats": {"total": 0, "kept": 0, "rate": None}, "suggestions": []},
-        "org": org(),
-        "tasks": [{"dept": d, "task": t} for d, t in roster.tasks()],
+        "org": roster.org(names),
+        "tasks": [{"dept": d, "task": t} for d, t in roster.tasks(names.get("merged"))],
     }

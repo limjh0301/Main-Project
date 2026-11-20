@@ -111,12 +111,12 @@
       const grp = by(d), reqs = D.reqs.filter((r) => grp.some((x) => x.req === r.tag));
       const nd = grp.filter((x) => S.done[x.id]).length, amb = grp.filter((x) => x.amb).length;
       const blocks = reqs.map((r) => `<div class="rq">${reqs.length > 1 ? `<h3>${esc(r.label)}</h3>` : ""}<ul class="rows">${grp.filter((x) => x.req === r.tag).map(rowHtml).join("")}</ul></div>`).join("");
-      return `<section id="b-d${i}" class="dept" data-dept="${esc(d)}" style="--c:var(--o${orgOf(d).i})">
+      return `<section id="b-d${i}" class="dept" data-dept="${esc(d)}" style="--c:var(--o${orgOf(d).c})">
 <div class="dh"><div><h2>${esc(d)}<span class="count">${grp.length}${nd ? ` · 기제출 ${nd}` : ""}</span>${amb ? `<span class="amb">확인 ${amb}</span>` : ""}</h2>
 <p class="meta"><span class="contacts">${contact(d, grp)}</span>${reqs.length === 1 ? ` <span class="t3">· ${esc(reqs[0].label)}</span>` : ""}</p></div>
 <span class="org-tag">${esc(orgOf(d).name)}</span></div>${blocks}</section>`;
     }).join("");
-    $("#b-nav").innerHTML = D.org.filter((o) => depts.some((d) => orgOf(d) === o)).map((o) => `<div class="fam" style="--c:var(--o${o.i})"><p class="label">${esc(o.name)}</p>` +
+    $("#b-nav").innerHTML = D.org.filter((o) => depts.some((d) => orgOf(d) === o)).map((o) => `<div class="fam" style="--c:var(--o${o.c})"><p class="label">${esc(o.name)}</p>` +
       depts.filter((d) => orgOf(d) === o).map((d) => `<a href="#b-d${depts.indexOf(d)}"><i></i><span>${esc(d)}</span><span class="t3">${by(d).length}</span></a>`).join("") + "</div>").join("");
     $("#b-na").innerHTML = `<summary>해당없음 ${na.length}건 · 기관 유형 비해당 섹션 등</summary><ul class="rows">${na.map(rowHtml).join("")}</ul>`;
     $("#b-na").hidden = !na.length;

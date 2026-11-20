@@ -18,7 +18,7 @@ MAIN_COLUMNS = [("부서", 16), ("담당자", 10), ("요구서 번호", 13), ("�
 SUMMARY_COLUMNS = [("부서", 18), ("총괄담당자", 11), ("질의 수", 8), ("작성 요청", 9), ("기제출 갈음", 10),
                    ("가장 이른 제출기한", 15), ("담당자", 40)]
 NA_COLUMNS = [("요구서 번호", 13), ("요구 제목", 28), ("질의 번호", 14), ("질의 내용", 70), ("사유", 30)]
-_ORDER = [d for _, depts in ORG for d in depts]  # 본부 순 → 본부 안 부서 순
+_ORDER = [d for _, depts in ORG for d in depts]  # 기본 순서: 본부 순 → 본부 안 부서 순
 
 
 def _text(v, limit: int = 4000) -> str:
@@ -47,8 +47,8 @@ def _due(v: str):
         return None
 
 
-def _rank(dept: str) -> tuple:
-    return (_ORDER.index(dept) if dept in _ORDER else len(_ORDER), dept)
+def _rank(dept: str, order: list[str]) -> tuple:
+    return (order.index(dept) if dept in order else len(order), dept)
 
 
 def _key_rank(key: str) -> tuple:
@@ -58,7 +58,8 @@ def _key_rank(key: str) -> tuple:
     return (sec.group(1) if sec else "", [int(n) for n in re.findall(r"\d+", body)] or [0], body)
 
 
-def build(rows: list[dict], channel: dict, today: date | None = None):
+def build(rows: list[dict], channel: dict, today: date | None = None, order: list[str] | None = None):
+    """order: 부서 정렬 순서 (설정에서 바꾼 부서 구성). 없으면 기본 본부 순."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -90,12 +91,12 @@ def build(rows: list[dict], channel: dict, today: date | None = None):
             if isinstance(v, date):
                 cell.number_format = "yyyy.mm.dd"
 
-    today = today or date.today()
+    today, order = today or date.today(), order or _ORDER
     wb = Workbook()
     ws = wb.active
     ws.title = "분장내역"
     assigned = sorted((r for r in rows if r["dept"] != NA_DEPT),
-                      key=lambda r: (_rank(r["dept"]), r["doc"], _key_rank(r["key"])))
+                      key=lambda r: (_rank(r["dept"], order), r["doc"], _key_rank(r["key"])))
     start = sheet(ws, MAIN_COLUMNS, f"{TITLE} ({today:%Y.%m.%d} 기준)")
     for i, r in enumerate(assigned, start=start + 1):
         put(ws, i, [r["dept"], r["worker"], r["doc"], r["member"], r["title"], r["key"], r["text"], _due(r["due"]),

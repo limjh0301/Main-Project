@@ -82,3 +82,28 @@ def test_added_task_keywords_win():
     custom = [{"dept": "감사부", "task": "청탁금지", "keywords": ["김영란법"]}]
     q = assign.assign([{"text": "김영란법 위반 신고 현황"}], custom=custom)[0]
     assert (q["dept"], q["task"], q["why"], q["ambiguous"]) == ("감사부", "청탁금지", "‘김영란법’ 추가 업무", False)
+
+
+
+def _route_one(text, **kw):
+    from extractor import assign
+
+    it = assign.assign([{"text": text}], use_siblings=False, **kw)[0]
+    return it["dept"], it["task"], it["ambiguous"], it["why"]
+
+
+def test_special_cases_go_to_check_with_note():
+    assert _route_one("탄약 보관 현황") == ("기획실", "", True, "특수 사례 — 국방부 보안과제 책임자에게 직접 확인")
+    assert _route_one("데이터 인사이트 발간 현황")[2:] == (True, "특수 사례 — 데이터 인사이트 저자에게 확인")
+
+
+def test_merged_and_deleted_departments():
+    from extractor import roster
+
+    assert _route_one("유형자산 대장")[:2] == ("시설자산실", "자산 관리")
+    # 조직개편: 시설자산실 업무를 총무구매실이 넘겨받음
+    assert _route_one("유형자산 대장", resolve=roster.resolver({"시설자산실": "총무구매실"}))[:3] == ("총무구매실", "자산 관리", False)
+    # 넘겨받은 부서 없이 없앤 경우 → 확인 필요
+    assert _route_one("유형자산 대장", resolve=roster.resolver({"시설자산실": ""})) == ("기획실", "", True, "없앤 부서(시설자산실)의 업무")
+    # 기본 부서(기획실) 이름이 바뀌면 확인 필요 질의도 새 이름으로
+    assert _route_one("탄약 보관 현황", resolve=roster.resolver({"기획실": "전략기획실"}))[0] == "전략기획실"

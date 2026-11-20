@@ -34,7 +34,7 @@ from extractor.ledger import (
 )
 import io
 
-from extractor import board, export, history, learning, roster, settings, status
+from extractor import assign, board, export, history, learning, roster, settings, status
 from extractor.hwp_text import HWP_EXTENSIONS, HwpReadError, extract_hwp_text
 from extractor.parser import ParsedRequest, parse_attachment, parse_request
 from extractor.pdf_text import extract_text, ocr_available
@@ -102,9 +102,13 @@ def index():
 
 @app.get("/settings")
 def settings_page():
-    """설정 화면 — 담당자 명단·업무 추가/제외·배분 추가 규칙 (파일을 처리하지 않아도 바로 들어올 수 있다)."""
+    """설정 화면 — 부서원·분장표·부서 구성·배분 추가 규칙 (파일을 처리하지 않아도 바로 들어올 수 있다).
+
+    tasks는 조직개편 반영 전의 배분표 업무 — 화면이 설정의 부서 통합(merged)을 바로 적용해 보여 준다.
+    """
+    raw = [{"dept": d, "task": t} for _, _, d, t in assign.TABLE if d and d != assign.NA_DEPT]
     return render_template("settings.html", meta={
-        "org": board.org(), "tasks": [{"dept": d, "task": t} for d, t in roster.tasks()]})
+        "defaultOrg": roster.default_org(), "tasks": [dict(t) for t in {tuple(x.items()): x for x in raw}.values()]})
 
 
 @app.post("/process")
@@ -499,7 +503,8 @@ def export_assignments():
     if not rows:
         return jsonify({"error": "내보낼 질의가 없습니다."}), 400
     buf = io.BytesIO()
-    export.build(rows, channel).save(buf)
+    order = [d for g in roster.org(settings.load()) for d in g["depts"]]
+    export.build(rows, channel, order=order).save(buf)
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name=f"업무분장내역_{date.today():%y%m%d}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

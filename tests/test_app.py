@@ -416,3 +416,23 @@ def test_export_endpoint_returns_workbook(client):
     assert load_workbook(io.BytesIO(res.data))["분장내역"]["A4"].value == "기획실"
     assert client.post("/export", json={"rows": []}).status_code == 400
     assert client.post("/export", json=[1]).status_code == 400
+
+
+
+def test_department_changes_apply_to_next_run(client):
+    from openpyxl import load_workbook
+
+    org = [{"name": "기획본부", "depts": ["기획실"]}, {"name": "행정본부", "depts": ["총무구매실", "자산팀"]}]
+    cfg = {"org": org, "merged": {"시설자산실": "자산팀"}, "channel": {"자산팀": "가상자산"}}
+    assert client.post("/api/settings", json=cfg).status_code == 200
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 자산\n1. 유형자산 대장\n2. 탄약 보관 현황".encode()), "b.pdf")
+    b = _post(client, [pdf]).get_json()["board"]
+    assert [(i["dept"], i["task"]) for i in b["items"]] == [("자산팀", "자산 관리"), ("기획실", "")]
+    assert [g["name"] for g in b["org"]] == ["기획본부", "행정본부"]
+    assert {"dept": "자산팀", "task": "자산 관리"} in b["tasks"]
+    assert not any(t["dept"] == "시설자산실" for t in b["tasks"])
+
+    # 분장내역 정렬도 설정한 부서 구성 순서를 따른다
+    rows = [{"dept": d, "worker": "", "doc": "1", "key": "1", "text": "x", "done": False} for d in ("자산팀", "기획실")]
+    wb = load_workbook(io.BytesIO(client.post("/export", json={"rows": rows, "channel": {}}).data))
+    assert [wb["분장내역"].cell(row=r, column=1).value for r in (4, 5)] == ["기획실", "자산팀"]

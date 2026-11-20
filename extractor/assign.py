@@ -230,7 +230,7 @@ TABLE = [
     ('F3', '기념품', '홍보실', '홍보 물품'),
     ('F3', '용역보고서', '사업관리실', '용역보고서'),
     ('F3', None, '총무구매실', '구매·계약'),
-    ('F4', '탄약', '국방부 보안과제 책임자', '책임자에게 직접 확인'),
+    ('F4', '탄약', '', '특수 사례 — 국방부 보안과제 책임자에게 직접 확인'),
     ('F4', None, '시설자산실', '자산 관리'),
     ('G1', '골프장', '총무구매실', '회원권·복리후생'),
     ('G1', '보수|보강|안전진단|안전관리|재난', '안전보건실', '건축물 안전'),
@@ -281,7 +281,7 @@ TABLE = [
     ('D1', '수집|등재|큐레이션|품질검증|정합성', '데이터큐레이션센터', 'ScienceON 자료 수집·등재'),
     ('D1', None, 'AI서비스운영팀', 'ScienceON 서비스'),
     ('D2', None, '과학기술연구망센터', '국가과학기술연구망(KREONET)'),
-    ('D3', '데이터 인사이트|글로벌 이동|인재유출', '(데이터 인사이트 저자)', '데이터 인사이트 저자'),
+    ('D3', '데이터 인사이트|글로벌 이동|인재유출', '', '특수 사례 — 데이터 인사이트 저자에게 확인'),
     ('D3', None, '사업관리실', '국가R&D 과제'),
     ('B1', '서버|백신|악성|정보보안', '정보보호팀', '서버·백신·악성 등'),
     ('B1', '반출|하드디스크|저장매체', '시설자산실', '자산 반출입'),
@@ -338,30 +338,42 @@ def classify(text: str, context: str = "", title: str = "") -> tuple[str | None,
     return None, "미분류"
 
 
-def route(cat: str, text: str, context: str = "", excluded=frozenset()) -> tuple[str, str, str]:
+def _same(dept: str) -> str:
+    return dept
+
+
+def route(cat: str, text: str, context: str = "", excluded=frozenset(), resolve=_same) -> tuple[str, str, str]:
     """(부서, 업무, 걸린 세부 키워드). 질의 문장 → (일부 업무는) 상위 제목 → 기본 담당 순.
 
     excluded: 담당자 설정에서 뺀 "부서|업무" — 그 줄은 건너뛰고 다음 줄(없으면 기본 담당)로 간다.
+    resolve: 조직개편으로 없앤 부서 → 넘겨받은 부서 (roster.resolver). 넘겨받은 부서가 없으면
+    부서 없이 '없앤 부서의 업무'로 돌려줘 확인 필요가 된다. 부서가 빈 줄은 특수 사례(업무 칸이 안내문).
     """
-    rows = [r for r in TABLE if r[0] == cat and f"{r[2]}|{r[3]}" not in excluded]
+    rows = []
+    for c, cond, dept, task in TABLE:
+        now = resolve(dept) if dept else ""
+        if c == cat and f"{now}|{task}" not in excluded:
+            rows.append((cond, now, task if now or not dept else f"없앤 부서({dept})의 업무"))
     for target in (text, context):
-        for _, cond, dept, task in rows:
+        for cond, dept, task in rows:
             if target is context and task not in _CONTEXT_OK:
                 continue
             if cond and target and (m := re.search(cond, target)):
                 return dept, task, m.group(0)
-    for _, cond, dept, task in rows:
+    for cond, dept, task in rows:
         if cond is None:
             return dept, task, ""
     return "", "", ""
 
 
-def assign(items: list[dict], use_siblings: bool = True, excluded=frozenset(), custom=()) -> list[dict]:
+def assign(items: list[dict], use_siblings: bool = True, excluded=frozenset(), custom=(), resolve=_same) -> list[dict]:
     """items(text·context·title)에 cat·how·dept·task·why·ambiguous를 채운다.
 
     use_siblings=False: 공통요구자료처럼 성격이 제각각인 질의 묶음은 다수결 보완을 쓰지 않는다.
     excluded: 배분에서 뺀 "부서|업무", custom: 추가 업무 [{dept, task, keywords}] — 키워드가 있으면 먼저 적용.
+    resolve: 없앤 부서 → 넘겨받은 부서 (route 참고).
     """
+    default = resolve(DEFAULT_DEPT) or DEFAULT_DEPT
     det = [classify(it["text"], it.get("context", ""), it.get("title", "")) for it in items]
     votes = Counter(c for c, how in det if c and how == "규칙")
     sc_major = sum(c in ("S1", "S2", "S3") for c, _ in det) >= max(1, len(det) / 2)
@@ -370,18 +382,19 @@ def assign(items: list[dict], use_siblings: bool = True, excluded=frozenset(), c
             cat, how = _sc_rule(it["text"], "슈퍼컴 " + it["text"]), "같은 요구서(슈퍼컴)"
         elif not cat and use_siblings and votes:
             cat, how = votes.most_common(1)[0][0], "같은 요구서"
-        dept, task, kw = route(cat, it["text"], it.get("context", ""), excluded) if cat else ("", "", "")
+        dept, task, kw = route(cat, it["text"], it.get("context", ""), excluded, resolve) if cat else ("", "", "")
         ambiguous = how in _AMBIGUOUS_HOW or cat == "X1" or not dept  # 업무를 모두 빼 갈 곳이 없으면 확인 필요
-        added = next(((c, k) for c in custom for k in c["keywords"] if k in it["text"]), None)
+        added = next(((c, k) for c in custom if resolve(c["dept"]) for k in c["keywords"] if k in it["text"]), None)
         if added:
             (c, k), ambiguous = added, False
-            dept, task, why = c["dept"], c["task"], f"‘{k}’ 추가 업무"
+            dept, task, why = resolve(c["dept"]), c["task"], f"‘{k}’ 추가 업무"
         elif ambiguous:
-            why = "공통자료요구 — 첨부 확인 후 배분" if cat == "X1" else (f"추정: {dept}" if dept else "추정 부서 없음")
-            dept, task = DEFAULT_DEPT, ""
+            why = ("공통자료요구 — 첨부 확인 후 배분" if cat == "X1" else f"추정: {dept}" if dept
+                   else task or "추정 부서 없음")  # 부서 없이 업무 칸만 있으면 특수 사례·없앤 부서 안내
+            dept, task = default, ""
         else:
             why = f"‘{kw}’ 키워드" if kw else ""
-        it.update(cat=cat, cat_name=CATS[cat][1] if cat else "(미분류)", how=how, dept=dept or DEFAULT_DEPT,
+        it.update(cat=cat, cat_name=CATS[cat][1] if cat else "(미분류)", how=how, dept=dept or default,
                   task=task, why=why, ambiguous=ambiguous)
     return items
 
@@ -429,10 +442,10 @@ def attachment_items(items: list[str], title: str = "") -> list[dict]:
     return out
 
 
-def plan(questions: list[dict], use_siblings: bool, excluded=frozenset(), custom=()) -> list[dict]:
+def plan(questions: list[dict], use_siblings: bool, excluded=frozenset(), custom=(), resolve=_same) -> list[dict]:
     """질의 목록을 배분하고, 비해당 섹션은 해당없음, 같은 요구서 안의 똑같은 질의는 dup_of로 표시한다."""
     use = [q for q in questions if q["section"] in APPLICABLE_SECTIONS]
-    assign(use, use_siblings=use_siblings, excluded=excluded, custom=custom)
+    assign(use, use_siblings=use_siblings, excluded=excluded, custom=custom, resolve=resolve)
     for q in questions:
         if q["section"] not in APPLICABLE_SECTIONS:
             q.update(cat=None, cat_name="-", how="-", dept=NA_DEPT, task="", ambiguous=False,
