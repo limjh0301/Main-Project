@@ -49,6 +49,7 @@ function setExcel(file) {
   excelFile = file;
   excelDrop.classList.add("has-file");
   excelDropText.textContent = `${file.name} 선택됨 — 다른 파일을 고르려면 다시 클릭`;
+  loadSide();
 }
 
 // 요구서 PDF · 첨부 한글파일 선택
@@ -191,6 +192,75 @@ document.getElementById("status-btn").addEventListener("click", async () => {
     showStatus(err.message, true);
   }
 });
+
+// ---------- 첫 화면 오른쪽: 마감 현황 요약 ----------
+// 선택한 대장(PC 대장 경로 또는 올린 대장 파일)을 읽어 미제출 요구서를 기한 순으로 보여 준다
+const sideBody = document.getElementById("side-body");
+const sideSrc = document.getElementById("side-src");
+const sideRefresh = document.getElementById("side-refresh");
+const SIDE_STALE_MS = 60 * 1000; // 창으로 돌아왔을 때 이보다 오래됐으면 다시 읽는다
+let sideData = null, sideSource = "", sideLoadedAt = 0, sideSeq = 0;
+
+function sideMessage(message) {
+  sideData = null;
+  sideSrc.textContent = "";
+  sideRefresh.hidden = true;
+  sideBody.replaceChildren(el("p", message, "side-empty"));
+}
+
+async function loadSide() {
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const data = new FormData();
+  data.append("mode", mode);
+  let source;
+  if (mode === "local") {
+    const path = cleanPath(localPath.value);
+    if (!path) { sideMessage("대장 파일 경로를 넣으면 마감이 가까운 요구서가 여기에 나옵니다."); return; }
+    data.append("local_path", path);
+    source = path;
+  } else if (mode === "existing") {
+    if (!excelFile) { sideMessage("대장 파일을 고르면 마감 현황이 여기에 나옵니다."); return; }
+    data.append("excel", excelFile);
+    source = excelFile.name;
+  } else {
+    sideMessage("새 대장에는 아직 기록이 없습니다.");
+    return;
+  }
+  const seq = ++sideSeq; // 늦게 온 이전 응답이 새 결과를 덮지 않게
+  sideBody.replaceChildren(el("p", "불러오는 중…", "side-empty"));
+  try {
+    const res = await fetch("/status", { method: "POST", body: data });
+    const json = await res.json();
+    if (seq !== sideSeq) return;
+    if (!res.ok) throw new Error(json.error || "현황을 불러오지 못했습니다.");
+    sideData = json;
+    sideSource = source.split(/[\\/]/).pop();
+    sideLoadedAt = Date.now();
+    sideSrc.textContent = sideSource;
+    sideSrc.title = source;
+    sideRefresh.hidden = false;
+    window.Dash.side(sideBody, json);
+  } catch (err) {
+    if (seq === sideSeq) sideMessage(err.message);
+  }
+}
+
+document.querySelectorAll('input[name="mode"]').forEach((radio) => radio.addEventListener("change", loadSide));
+localPath.addEventListener("change", () => {
+  if (cleanPath(localPath.value)) { try { localStorage.setItem(LOCAL_PATH_KEY, cleanPath(localPath.value)); } catch (_) {} }
+  loadSide();
+});
+sideRefresh.addEventListener("click", loadSide);
+sideBody.addEventListener("click", (e) => {
+  if (e.target.closest("#side-all") && sideData) window.Dash.show(sideData, sideSource);
+});
+// 결과 화면에서 대장에 저장했거나, 엑셀에서 대장을 고치고 돌아왔으면 다시 읽는다
+document.addEventListener("ledger:saved", loadSide);
+window.addEventListener("focus", () => {
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  if (mode === "local" && sideData && Date.now() - sideLoadedAt > SIDE_STALE_MS) loadSide();
+});
+loadSide();
 
 function showStatus(message, isError) {
   statusBox.hidden = false;

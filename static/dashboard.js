@@ -56,7 +56,27 @@
       `<tr><td class="mono">${esc(fmt(r.submitted))}</td><td class="mono">${esc(fmt(r.deadline))}</td><td class="mono">${esc(r.doc)}</td><td>${esc(r.member || "—")}</td><td class="ttl">${esc(r.title)}</td></tr>`).join("");
   }
 
+  // 첫 화면 오른쪽 요약: 기한 지남 · 7일 안 마감 · 미제출 건수와 마감이 가까운 요구서 5건
+  const SIDE_LIMIT = 5;
+  const HOT = ["overdue", "today", "tomorrow"];
+  function side(body, data) {
+    const now = today();
+    const open = data.records.map((r) => ({ ...r, s: classify(r, now) })).filter((r) => r.s.key !== "done")
+      .sort((a, b) => (a.s.days ?? 1e9) - (b.s.days ?? 1e9) || a.doc.localeCompare(b.doc));
+    const n = (keys) => open.filter((r) => keys.includes(r.s.key)).length;
+    const tiles = [["기한 지남", n(["overdue"]), "alert"], ["7일 안 마감", n(["today", "tomorrow", "week"]), ""], ["미제출", open.length, ""]];
+    body.innerHTML = `<div class="side-tiles">${tiles.map(([label, v, cls]) =>
+      `<div class="${v ? cls : "zero"}"><span>${label}</span><b>${v}</b></div>`).join("")}</div>` +
+      (open.length ? `<ul class="side-list">${open.slice(0, SIDE_LIMIT).map((r) =>
+        `<li><span class="ttl" title="${esc(`${r.doc} · ${r.title}`)}">${esc(r.title || r.doc)}<small>${esc(r.member ? `${r.member} 의원` : r.doc)} · ${esc(fmt(r.deadline))}</small></span>` +
+        `<span class="dd${HOT.includes(r.s.key) ? " hot" : ""}">${esc(dday(r.s))}</span></li>`).join("")}</ul>` +
+        (open.length > SIDE_LIMIT ? `<p class="t3 side-more">외 ${open.length - SIDE_LIMIT}건</p>` : "")
+        : '<p class="side-empty">미제출 요구서가 없습니다.</p>') +
+      '<button type="button" class="btn side-all" id="side-all">전체 보기</button>';
+  }
+
   window.Dash = {
+    side,
     show(data, source) {
       const root = document.getElementById("dash");
       render(root, data, source);

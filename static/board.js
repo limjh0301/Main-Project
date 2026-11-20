@@ -249,6 +249,7 @@
     try {
       const j = await post("/save-local", {});
       toast(`대장에 저장했습니다 · ${j.saved}`);
+      document.dispatchEvent(new Event("ledger:saved")); // 첫 화면 마감 현황 다시 읽기
     } catch (err) { toast(err.message); }
   }
 

@@ -9,7 +9,7 @@
 </head>
 <body>
   {% with active = 'home' %}{% include 'partials/topbar.html' %}{% endwith %}
-  <main class="container">
+  <main class="container home">
     <header class="hero">
       <h1><span class="brand">KISTI</span> 국회 요구자료 관리 프로그램</h1>
     </header>
@@ -18,9 +18,9 @@
       <section class="step">
         <h2><span class="no">1</span>관리대장</h2>
         <div class="segmented" role="radiogroup" aria-label="관리대장 선택">
-          <label class="segment"><input type="radio" name="mode" value="local" checked><span>PC의 대장에 바로 저장</span></label>
-          <label class="segment"><input type="radio" name="mode" value="existing"><span>대장 파일 올려서 처리</span></label>
-          <label class="segment"><input type="radio" name="mode" value="new"><span>새 대장 만들기</span></label>
+          <label class="segment"><input type="radio" name="mode" value="local" checked><span>PC 대장에 저장</span></label>
+          <label class="segment"><input type="radio" name="mode" value="existing"><span>대장 파일 올리기</span></label>
+          <label class="segment"><input type="radio" name="mode" value="new"><span>새 대장</span></label>
         </div>
 
         <div id="local-section" class="mode-panel">
@@ -68,6 +68,17 @@
         <section id="status" class="status" hidden></section>
       </div>
     </form>
+
+    <!-- 첫 화면 오른쪽: 선택한 대장의 마감 현황 요약 (전체는 '전체 보기') -->
+    <aside class="side" id="side" aria-labelledby="side-title">
+      <div class="side-head">
+        <h2 id="side-title">마감 현황</h2>
+        <button type="button" class="side-refresh" id="side-refresh" title="다시 불러오기" aria-label="마감 현황 다시 불러오기" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5"/></svg></button>
+      </div>
+      <p class="side-src t3" id="side-src"></p>
+      <div id="side-body"></div>
+    </aside>
   </main>
 
   <!-- 마감 현황 -->
