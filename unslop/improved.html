@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Example Domain</title>
+<style>
+  /* Paper-and-ink neutral ramp (warm), one accent for the single link */
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f4ee;
+    --text: #1f1b16;
+    --text-2: #5e554a;
+    --muted: #7b7266;
+    --hairline: rgb(31 27 22 / 0.08);
+    --accent: #1d4ed8;          /* link ink, 6.7:1 on --bg */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161513;
+      --text: #efe9de;
+      --text-2: #aaa398;
+      --muted: #8a847a;
+      --hairline: rgb(239 233 222 / 0.08);
+      --accent: #8fb3ff;        /* 8.4:1 on --bg */
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    padding: 128px 24px 64px;
+    color: var(--text);
+    font: 400 16px/24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    text-align: center;
+  }
+  main { max-width: 32rem; margin: 0 auto; }
+
+  .mark {
+    display: block;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 24px;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 28px;
+    line-height: 36px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .lead {
+    margin: 0;
+    font-size: 18px;
+    line-height: 28px;
+    color: var(--text-2);
+  }
+
+  .translations {
+    margin: 32px 0 0;
+    padding: 32px 0 0;
+    border-top: 1px solid var(--hairline);
+    display: grid;
+    gap: 16px;
+  }
+  .translations p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--muted);
+  }
+  .translations p[lang="ar"] { font-size: 15px; line-height: 24px; letter-spacing: 0; }
+  .translations p[lang="zh"] { line-height: 22px; }
+
+  .more {
+    display: inline-block;
+    margin-top: 32px;
+    font-size: 15px;
+    line-height: 20px;
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .more:hover { text-decoration-thickness: 2px; }
+  .more:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+
+  @media (max-width: 480px) {
+    body { padding: 64px 16px 48px; }
+    h1 { font-size: 24px; line-height: 32px; }
+    .lead { font-size: 16px; line-height: 24px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <svg class="mark" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M6 4H3v12q4 0 7 1.5-1-3.5-4-4.5V2q3.5 1 4 3v12.5q3-1.5 7-1.5V4q-4.5 0-7 1"/><g transform="rotate(-6,13.6,8.3)"><path id="q" d="M11.5 6.6h1.8v1.8l-1 1.6-.6-.3.8-1.3h-1z"/><use href="#q" x="2.4"/></g></svg>
+
+  <h1>Example Domain</h1>
+  <p class="lead" lang="en">This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.</p>
+
+  <div class="translations">
+    <p lang="ar" dir="rtl">هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن. هذه ليست خدمة، يُرجى تجنب الاعتماد عليها لأغراض الاختبار والمراقبة.</p>
+    <p lang="zh">该域名仅用于文档示例，无需获得许可。这并非一项服务，请勿将其用于测试和监控目的。</p>
+    <p lang="fr">L’usage de ce domaine est réservé à des exemples de documentation, sans autorisation préalable. Il ne s’agit pas d’un service ; son utilisation à des fins de test ou de surveillance est à éviter.</p>
+    <p lang="ru">Данный домен предназначен для использования в примерах документации без необходимости получения предварительного разрешения. Это не сервис; не рекомендуется его использование для тестирования и мониторинга.</p>
+    <p lang="es">Este dominio está destinado al uso en ejemplos de documentación sin necesidad de permiso. Esto no es un servicio; evitar utilizarlo para realizar pruebas o monitoreos.</p>
+  </div>
+
+  <a class="more" href="https://iana.org/help/example-domains">Learn more about example domains</a>
+</main>
+<script>
+  // Same behaviour as the live s.js: the visitor's preferred language becomes the lead paragraph
+  (function () {
+    var lead = document.querySelector(".lead");
+    var list = document.querySelector(".translations");
+    var all = [lead].concat([].slice.call(list.children));
+    var pick = null;
+    (navigator.languages || []).some(function (l) {
+      pick = all.filter(function (p) { return p.lang === l.split("-")[0]; })[0] || null;
+      return pick;
+    });
+    if (!pick || pick === lead) return;
+    lead.classList.remove("lead");
+    pick.classList.add("lead");
+    lead.parentNode.replaceChild(pick, lead);
+    list.insertBefore(lead, list.firstChild);
+  })();
+</script>
+</body>
+</html>
