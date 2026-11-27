@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KISTI 국회 요구자료 관리 프로그램</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
+</head>
+<body>
+  {% with active = 'home' %}{% include 'partials/topbar.html' %}{% endwith %}
+  <main class="container home">
+    <header class="hero">
+      <h1><span class="brand">KISTI</span> 국회 요구자료 관리 프로그램</h1>
+    </header>
+
+    <form id="process-form" class="form">
+      <section class="step">
+        <h2><span class="no">1</span>관리대장</h2>
+        <div class="segmented" role="radiogroup" aria-label="관리대장 선택">
+          <label class="segment"><input type="radio" name="mode" value="local" checked><span>PC 대장에 저장</span></label>
+          <label class="segment"><input type="radio" name="mode" value="existing"><span>대장 파일 올리기</span></label>
+          <label class="segment"><input type="radio" name="mode" value="new"><span>새 대장</span></label>
+        </div>
+
+        <div id="local-section" class="mode-panel">
+          <label class="field-label" for="local-path">대장 파일 경로</label>
+          <input type="text" id="local-path" class="text-input" placeholder="예: D:\국회\2026 국회 요구자료 관리대장.xlsx" autocomplete="off" spellcheck="false">
+          <p class="help">파일 탐색기에서 대장 파일을 Shift+우클릭 → '경로로 복사' 후 붙여 넣으세요. 저장할 때 엑셀에서 대장 파일이 닫혀 있어야 하며,
+            저장 직전 내용은 같은 폴더에 <code>_백업.xlsx</code>로 남깁니다.</p>
+        </div>
+        <div id="excel-section" class="mode-panel" hidden>
+          <div class="dropzone" id="excel-drop" tabindex="0" role="button" aria-label="관리대장 엑셀 파일 선택">
+            <span id="excel-drop-text">관리 중인 대장(.xlsx)을 끌어다 놓거나 클릭해 선택하세요</span>
+          </div>
+          <input type="file" id="excel-input" accept=".xlsx,.xlsm" hidden>
+          <p class="help">처리가 끝나면 이어 쓴 대장을 내려받습니다. 다음에는 그 파일을 올리면 됩니다.</p>
+        </div>
+        <div id="new-section" class="mode-panel" hidden>
+          <p class="help">기관 관리대장 양식(제목 1행 · 머리글 3행)으로 새 대장을 만듭니다.</p>
+        </div>
+      </section>
+
+      <section class="step">
+        <h2><span class="no">2</span>요구서 파일 <span class="muted">PDF 최대 {{ max_pdf }}개 · 한글 최대 {{ max_hwp }}개</span></h2>
+        <div class="dropzone dropzone-lg" id="pdf-drop" tabindex="0" role="button" aria-label="요구서 파일 선택">
+          <span>요구서 PDF와 첨부 한글파일(HWP·HWPX)을 끌어다 놓거나 클릭해 선택하세요</span>
+          <small>공통요구자료처럼 질의를 한글 파일로 받은 경우 질의서 PDF와 함께 올리면 해당 질의서에 연결됩니다.</small>
+        </div>
+        <input type="file" id="pdf-input" accept=".pdf,.hwp,.hwpx" multiple hidden>
+        <ul id="pdf-list" class="file-list"></ul>
+      </section>
+
+      <details class="advanced">
+        <summary>고급 설정</summary>
+        <label class="check-row">
+          <input type="checkbox" name="force_ocr" id="force-ocr" {% if not ocr_available %}disabled{% endif %}>
+          텍스트 레이어를 무시하고 OCR 강제 실행
+          {% if not ocr_available %}<span class="warn">서버에 OCR 도구가 설치되어 있지 않습니다</span>{% endif %}
+        </label>
+      </details>
+
+      <div class="submit-row">
+        <div class="submit-btns">
+          <button type="submit" class="btn primary" id="submit-btn">파일 처리</button>
+          <button type="button" class="btn" id="status-btn">마감 현황만 보기</button>
+        </div>
+        <section id="status" class="status" hidden></section>
+      </div>
+    </form>
+
+    <!-- 첫 화면 오른쪽: 선택한 대장의 마감 현황 요약 (전체는 '전체 보기') -->
+    <aside class="side" id="side" aria-labelledby="side-title">
+      <div class="side-head">
+        <h2 id="side-title">마감 현황</h2>
+        <button type="button" class="side-refresh" id="side-refresh" title="다시 불러오기" aria-label="마감 현황 다시 불러오기" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5"/></svg></button>
+      </div>
+      <p class="side-src t3" id="side-src"></p>
+      <div id="side-body"></div>
+    </aside>
+  </main>
+
+  <!-- 마감 현황 -->
+  <section id="dash" class="dash" hidden aria-labelledby="d-title">
+    <header class="d-head">
+      <div><h2 id="d-title">마감 현황</h2><p class="t3" id="d-sub"></p></div>
+      <button type="button" class="btn" id="d-close">닫기</button>
+    </header>
+    <dl class="tiles" id="d-tiles"></dl>
+    <div class="d-grid">
+      <div>
+        <h3>미제출 요구서 <span class="t3">기한 순</span></h3>
+        <table class="d-table"><thead><tr><th>남은 기간</th><th>제출기한</th><th>요구서 번호</th><th>요구의원</th><th>제목</th><th class="num">질의</th><th>부서별 질의</th></tr></thead><tbody id="d-rows"></tbody></table>
+      </div>
+      <aside>
+        <h3>부서별 미제출 질의</h3>
+        <ul class="d-depts" id="d-depts"></ul>
+        <p class="help">대장의 '배분 이력' 기준 · 제출일자를 대장에 적으면 제출 완료로 바뀝니다</p>
+      </aside>
+    </div>
+    <details class="d-done" id="d-done"><summary></summary>
+      <table class="d-table"><thead><tr><th>제출일자</th><th>제출기한</th><th>요구서 번호</th><th>요구의원</th><th>제목</th></tr></thead><tbody id="d-done-rows"></tbody></table>
+    </details>
+  </section>
+
+  <!-- 처리 결과: 분배안 보드 -->
+  <section id="board" class="board" hidden aria-labelledby="b-title">
+    <header class="b-head">
+      <div>
+        <h2 id="b-title">처리 결과 · 분배안</h2>
+        <p class="b-summary" id="b-summary"></p>
+        <div class="b-learn" id="b-learn" hidden></div>
+        <p class="b-hint" id="b-noroster" hidden>담당자 명단이 없습니다. '담당자 설정'에서 입력하면 담당자가 자동으로 채워집니다.</p>
+      </div>
+      <div class="b-actions">
+        <button type="button" class="btn" id="b-open-status">마감 현황</button>
+        <a class="btn" id="b-open-settings" href="/settings?from=result" target="_blank" rel="opener">담당자 설정</a>
+        <a class="btn" id="b-download-copy" href="#" hidden>엑셀로 받기</a>
+        <a class="btn primary" id="b-download" href="#">관리대장 다운로드</a>
+        <button type="button" class="btn ink" id="b-export"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 15.5h12"/></svg>분장내역 출력</button>
+      </div>
+    </header>
+    <table class="reqs"><thead><tr><th>요구서 번호</th><th>제목</th><th>요구의원</th><th>접수일자</th><th>제출기한</th><th class="num">질의</th></tr></thead><tbody id="b-reqs"></tbody></table>
+    <p class="b-hint" id="b-empty-all" hidden>배분할 질의가 없습니다.</p>
+    <div class="layout">
+      <aside aria-label="부서 목록" id="b-nav"></aside>
+      <div class="b-main">
+        <div class="bar">
+          <div class="tools"><input id="b-q" placeholder="질의, 부서, 담당자 검색" aria-label="검색">
+            <div class="seg" role="group" aria-label="보기"><button type="button" class="on" data-f="all">전체</button><button type="button" data-f="amb">확인 필요 <b>0</b></button><button type="button" data-f="dup">같은 질의 <b>0</b></button><button type="button" data-f="prev">이전 질의 <b>0</b></button><button type="button" data-f="done">기제출 <b>0</b></button><button type="button" data-f="moved">변경 <b>0</b></button></div></div>
+          <p class="hint"><span>부서를 고르면 그 부서원 중에서 담당자를 고를 수 있습니다 · 기제출 체크 시 분장내역에 기제출로 표시 · 질의별 수정은 이 브라우저에만 저장</span><button type="button" class="linkbtn" id="b-reset">수정 초기화</button></p>
+          <div class="colhead" aria-hidden="true"><span>번호</span><span>기간</span><span>질의</span><span>부서 · 담당자</span><span>기제출</span></div>
+        </div>
+        <div id="b-sections"></div>
+        <p id="b-empty" class="empty-msg hide">조건에 맞는 질의가 없습니다.</p>
+        <details class="na" id="b-na"></details>
+      </div>
+    </div>
+    <div id="b-toast" class="toast" role="status" aria-live="polite"></div>
+  </section>
+
+  <footer class="footer">한국과학기술정보연구원 · 업로드 파일과 결과 엑셀은 처리 후 30분 안에 임시 폴더에서 삭제됩니다</footer>
+  <script>
+    // 서버가 단일 출처로 관리하는 설정 (업로드 한도)
+    window.APP_CONFIG = {{ {"maxPdf": max_pdf, "maxHwp": max_hwp} | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='board.js') }}"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

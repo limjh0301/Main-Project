@@ -1,0 +1,438 @@
+import io
+from datetime import datetime
+
+import pytest
+
+import app as app_module
+
+
+@pytest.fixture
+def client(monkeypatch):
+    # PDF 추출 대신 저장된 파일 내용을 그대로 텍스트로 돌려주는 가짜 추출기
+    def fake_extract(path, force_ocr=False):
+        with open(path, encoding="utf-8") as f:
+            return f.read(), "text-layer"
+
+    monkeypatch.setattr(app_module, "extract_text", fake_extract)
+    app_module.app.config["TESTING"] = True
+    return app_module.app.test_client()
+
+
+def test_korean_filenames_do_not_collide(client):
+    # 한글 파일명은 secure_filename이 전부 지워 같은 이름으로 겹치던 회귀 버그 검증:
+    # 5개 파일이 각각의 내용으로 5건 처리되어야 한다
+    uploads = [
+        (io.BytesIO(f"요구서번호 : 000000000{i}".encode()), f"요구서(의원실{'가나다라마'[i]}).pdf")
+        for i in range(5)
+    ]
+    res = client.post(
+        "/process",
+        data={"mode": "new", "docs": uploads},
+        content_type="multipart/form-data",
+    )
+    assert res.status_code == 200
+    doc_nos = [r["parsed"]["doc_no"] for r in res.get_json()["results"]]
+    assert doc_nos == [f"000000000{i}" for i in range(5)]
+
+
+def _post(client, uploads):
+    return client.post("/process", data={"mode": "new", "docs": uploads}, content_type="multipart/form-data")
+
+
+def _download(client, body):
+    from openpyxl import load_workbook
+
+    res = client.get(body["download_url"])
+    assert res.status_code == 200
+    return load_workbook(io.BytesIO(res.data)).active
+
+
+ATTACHMENT_PARAGRAPHS = ["※ 9월 28일(월)까지 제출", "기관 개요", " 1) 설립근거", " 2) 주요 연혁", "2. 사업 현황"]
+
+
+def test_hwp_attachment_links_to_request_by_doc_no(client, make_hwpx):
+    pdf = (io.BytesIO("요구서번호 : 0007999174\n1. 다음의 자료를 요청합니다 - 첨부 파일 참고".encode()), "질의서.pdf")
+    other = (io.BytesIO("요구서번호 : 0001112223\n1. 별도 요구".encode()), "다른질의서.pdf")
+    hwpx = make_hwpx("0007999174_공통요구자료.hwpx", ATTACHMENT_PARAGRAPHS)
+    res = _post(client, [other, pdf, (open(hwpx, "rb"), hwpx.name)])
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["row_count"] == 2  # 요구서 1건 = 1행
+    linked = body["results"][1]
+    assert linked["attachments"] == [hwpx.name]
+    assert [i.split("\n")[0] for i in linked["items"]] == [
+        "1-1) [기관 개요] 설립근거", "1-2) [기관 개요] 주요 연혁", "2. 사업 현황",
+    ]
+
+    ws = _download(client, body)
+    assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0007999174"]
+    assert ws.max_row == 5
+    # 질의 내역은 한 칸에 줄바꿈으로
+    # 질의서 첫 항목이 제목, 첨부 항목이 질의 내역
+    assert ws.cell(row=5, column=8).value.split("\n") == [
+        "[다음의 자료를 요청합니다]",
+        "1-1) [기관 개요] 설립근거", "1-2) [기관 개요] 주요 연혁", "2. 사업 현황",
+    ]
+    assert ws.cell(row=5, column=10).value == "[첨부 안내]\n※ 9월 28일(월)까지 제출"
+
+
+def test_hwp_without_matching_request_is_recorded_alone(client, make_hwpx):
+    hwpx = make_hwpx("0005556667_요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
+    res = _post(client, [(open(hwpx, "rb"), hwpx.name)])
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["results"][0]["method"] == "hwp"
+    assert body["results"][0]["parsed"]["doc_no"] == "0005556667"
+    assert body["results"][0]["items"] == ["1. 기관 현황", "2. 예산 현황"]
+    assert body["row_count"] == 1
+
+
+def test_unreadable_hwp_returns_error(client):
+    res = _post(client, [(io.BytesIO(b"broken"), "깨진파일.hwp")])
+    assert res.status_code == 422
+    assert "깨진파일.hwp" in res.get_json()["error"]
+
+
+@pytest.mark.parametrize(
+    "filename, deadline, expected",
+    [
+        ("0007999174_자료요구서_260921.pdf", "2026.09.28", "2026-09-21"),
+        ("0007999174_자료요구서_261001.pdf", "2026.09.28", ""),  # 제출기한보다 늦으면 요구일자가 아님
+        ("0007999174_자료요구서_261341.pdf", "", ""),  # 날짜가 아님
+        ("0007999174.pdf", "", ""),  # 요구서번호 끝자리를 날짜로 오인하지 않음
+        ("질의서.pdf", "2026.09.28", ""),
+    ],
+)
+def test_request_date_from_filename(filename, deadline, expected):
+    assert app_module._request_date_from_name(filename, deadline) == expected
+
+
+def test_request_date_falls_back_to_filename_only_when_missing(client):
+    no_date = (io.BytesIO("요구서번호 : 0007999174\n제출기한 : 2026.09.28".encode()), "0007999174_자료요구서_260921.pdf")
+    with_date = (
+        io.BytesIO("요구서번호 : 0001112223\n요구일자 : 2026. 9. 15\n제출기한 : 2026.09.28".encode()),
+        "0001112223_자료요구서_260921.pdf",
+    )
+    body = _post(client, [no_date, with_date]).get_json()
+    assert [r["parsed"]["request_date"] for r in body["results"]] == ["2026-09-21", "2026-09-15"]
+    ws = _download(client, body)
+    assert ws.cell(row=4, column=3).value == datetime(2026, 9, 21)
+
+
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("0007999174_황정아의원_자료요구서_260921.pdf", "황정아"),
+        ("0007999174_송기헌_자료요구서_260921.pdf", "송기헌"),
+        ("0007999174_김현_자료요구서.pdf", "김현"),  # 두 글자 이름
+        ("0007999174_허영미_자료요구서.pdf", ""),  # 명단에 없는 '허영미'를 '허영'으로 오인하지 않음
+        ("0007999174_공통요구자료.hwp", ""),
+    ],
+)
+def test_member_from_filename(filename, expected):
+    assert app_module._member_from_name(filename) == expected
+
+
+def test_fill_from_name_keeps_text_values_first():
+    parsed = {"doc_no": "0001112223", "request_date": "", "member": "", "deadline": "2026.09.28"}
+    out = app_module._fill_from_name(parsed, "0007999174_황정아의원_자료요구서_260921.pdf")
+    assert out["doc_no"] == "0001112223"  # 본문 값 우선
+    assert (out["request_date"], out["member"]) == ("2026-09-21", "황정아")
+    assert out["from_name"] == ["request_date", "member"]
+
+
+def test_filename_fills_missing_fields_and_member_lookup(client, make_hwpx):
+    pdf = (io.BytesIO("1. 기관 현황 자료".encode()), "0007999174_황정아의원_자료요구서_260921.pdf")
+    hwpx = make_hwpx("0005556667_송기헌_공통요구자료_260915.hwpx", ["1. 기관 현황"])
+    body = _post(client, [pdf, (open(hwpx, "rb"), hwpx.name)]).get_json()
+    p, h = (r["parsed"] for r in body["results"])
+    assert (p["doc_no"], p["request_date"], p["member"]) == ("0007999174", "2026-09-21", "황정아")
+    assert p["committee"] == "과학기술정보방송통신위원회"  # 의원 명단에서 소관위원회 보완
+    assert (h["doc_no"], h["request_date"], h["member"]) == ("0005556667", "2026-09-15", "송기헌")
+    assert h["from_name"] == ["doc_no", "request_date", "member"]
+
+
+def test_date_input_fills_target_row(client, make_hwpx):
+    with_deadline = (io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.09.28\n1. 별도 요구".encode()), "a.pdf")
+    no_deadline = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 기관 현황", "2. 예산 현황"])
+    body = _post(client, [with_deadline, (open(no_deadline, "rb"), no_deadline.name)]).get_json()
+    target = body["results"][1]
+    assert target["rows"] == [5, 5] and not target["parsed"]["deadline"]
+
+    rid = body["download_url"].rsplit("/", 1)[1]
+    res = client.post(f"/dates/{rid}", json={"updates": [
+        {"rows": target["rows"], "deadline": "2026-10-02", "request_date": "2026-09-21"}]})
+    assert res.status_code == 200 and res.get_json()["filled"] == 2
+    ws = _download(client, body)
+    assert [ws.cell(row=r, column=4).value for r in (4, 5)] == [datetime(2026, 9, 28), datetime(2026, 10, 2)]
+    assert ws.cell(row=5, column=3).value == datetime(2026, 9, 21)
+
+
+@pytest.mark.parametrize("deadline", ["2026.10.02", "2026-02-30", ""])
+def test_date_input_rejects_bad_dates(client, deadline):
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    res = client.post(f"/dates/{rid}", json={"updates": [{"rows": [4, 4], "deadline": deadline}]})
+    assert res.status_code == 400
+
+
+def test_date_input_unknown_result(client):
+    assert client.post("/dates/abc123", json={"updates": []}).status_code == 404
+
+
+def test_very_long_request_is_cut_to_excel_cell_limit():
+    items = [f"{i}. " + "가" * 500 for i in range(1, 80)]  # 약 4만 자
+    row, got, _ = app_module._build_row({"items": items}, [])
+    assert got == items
+    assert len(row["content"]) == app_module.EXCEL_CELL_LIMIT
+    assert row["content"].endswith("원본 확인)")
+
+
+@pytest.mark.parametrize(
+    "items, content",
+    [
+        # 요구목록 "1. 제목" 아래 세부 질의가 다시 1번부터: 제목을 [ ]로, 세부 내용은 줄을 나눔
+        (["1. 병가 운영 현황 ※ 대상: 연구회 ※ 기간: 25년1월~", "1. 관련 규정 - 병가 사유 - 지급 기준", "2. 사용 현황"],
+         "[병가 운영 현황]\n※ 대상: 연구회\n※ 기간: 25년1월~\n1. 관련 규정\n- 병가 사유\n- 지급 기준\n2. 사용 현황"),
+        (["1. 국정감사 공통자료요구의 건"], "[국정감사 공통자료요구의 건]"),
+        # 1. 2. 3. 이 이어지면 제목 없이 그대로
+        (["1. 업무보고 자료", "2. 예산 설명자료"], "1. 업무보고 자료\n2. 예산 설명자료"),
+        ([], "(요구내용 미추출 — 원본 확인 필요)"),
+    ],
+)
+def test_content_title_and_lines(items, content):
+    assert app_module._build_row({"items": items}, [])[0]["content"] == content
+
+
+def test_standalone_attachment_title_from_filename(client, make_hwpx):
+    hwpx = make_hwpx("0005556667_송기헌의원_공통요구자료_260915.hwpx", ["1. 기관 현황"])
+    body = _post(client, [(open(hwpx, "rb"), hwpx.name)]).get_json()
+    ws = _download(client, body)
+    assert ws.cell(row=4, column=8).value == "[공통요구자료]\n1. 기관 현황"
+
+
+def test_existing_ledger_skips_recorded_requests(client, tmp_path):
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "content": "[기존]"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdfs = [(io.BytesIO(f"요구서번호 : {n}\n1. 요구".encode()), f"{n}.pdf") for n in ("0001112223", "0004445556")]
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": pdfs},
+                      content_type="multipart/form-data")
+    body = res.get_json()
+    assert [r["duplicate"] for r in body["results"]] == [True, False]
+    assert (body["row_count"], body["skipped"]) == (1, 1)
+    assert body["results"][1]["rows"] == [5, 5]
+    ws = _download(client, body)
+    assert [ws.cell(row=r, column=1).value for r in (4, 5)] == [1, 2]
+    assert [ws.cell(row=r, column=2).value for r in (4, 5)] == ["0001112223", "0004445556"]
+
+
+def test_board_payload_with_roster_from_settings(client, tmp_path, make_hwpx):
+    from extractor import settings
+    from extractor.ledger import create_ledger
+
+    settings.save({"channel": {"감사부": "김감사"}})
+    wb = create_ledger()
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 복무점검 실시 현황\n2. 법률자문 현황".encode()), "a.pdf")
+    hwpx = make_hwpx("0005556667_공통요구자료.hwpx", ["1. 직제표", "<학교(과기원 등)>", "1. 학생 현황"])
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"),
+                                        "docs": [pdf, (open(hwpx, "rb"), hwpx.name)]},
+                      content_type="multipart/form-data")
+    b = res.get_json()["board"]
+    assert b["roster"]["channel"] == {"감사부": "김감사"}
+    assert [(r["tag"], r["title"], r["n"]) for r in b["reqs"]] == [
+        ("0001112223", "병가 현황", 2), ("0005556667", "공통요구자료", 2)]
+    assert [(i["id"], i["dept"]) for i in b["items"]] == [
+        ("0001112223|1", "감사부"), ("0001112223|2", "총무구매실"),
+        ("0005556667|1", "기획실"), ("0005556667|[학교(과기원 등)] 1", "해당없음")]
+
+
+def test_settings_endpoint_saves_and_merges(client):
+    from extractor import settings
+
+    assert client.get("/api/settings").get_json() == {"settings": settings.empty(), "exists": False}
+    assert client.post("/api/settings/rules", json={"keyword": "칼퇴", "dept": "인재개발실"}).status_code == 200
+    res = client.post("/api/settings", json={"channel": {"기획실": "홍길동"}, "tasks": {}, "members": {}})
+    assert res.status_code == 200
+    got = client.get("/api/settings").get_json()
+    assert got["exists"] and got["settings"]["channel"] == {"기획실": "홍길동"}
+    assert [r["keyword"] for r in got["settings"]["rules"]] == ["칼퇴"]  # 명단만 보내도 규칙은 그대로
+    assert client.post("/api/settings", json=[1]).status_code == 400
+
+    # 결과 대장에는 명단 시트를 쓰지 않는다
+    from openpyxl import load_workbook
+
+    body = _post(client, [(io.BytesIO("1. 요구".encode()), "a.pdf")]).get_json()
+    sheets = load_workbook(io.BytesIO(client.get(body["download_url"]).data)).sheetnames
+    assert "부서별 담당자" not in sheets and "배분 추가 규칙" not in sheets
+
+
+def test_board_items_link_previous_questions(client, tmp_path):
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "request_date": "2025-09-18", "member": "을지문덕",
+                      "content": "[2025 공통]\n1. (최근3년간) 예산서, 결산서"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. (최근5년간) 예산서, 결산서".encode()), "b.pdf")
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf]},
+                      content_type="multipart/form-data")
+    prev = res.get_json()["board"]["items"][0]["prev"]
+    assert prev[0]["doc"] == "0001112223" and prev[0]["kind"] == "기간만 다름" and prev[0]["date"] == "2025-09-18"
+
+
+@pytest.fixture
+def local_ledger(tmp_path):
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [{"doc_no": "0001112223", "content": "[기존]"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    return path
+
+
+def _post_local(client, path, **kw):
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 요구".encode()), "b.pdf")
+    return client.post("/process", data={"mode": "local", "local_path": f'"{path}"', "docs": [pdf]},
+                       content_type="multipart/form-data", **kw)
+
+
+def test_local_mode_is_default_on_page(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'value="local" checked' in html
+
+
+def test_local_mode_saves_into_pc_ledger_with_backup(client, local_ledger):
+    from openpyxl import load_workbook
+
+    body = _post_local(client, local_ledger).get_json()
+    assert body["local"] == {"path": str(local_ledger)}
+    rid = body["download_url"].rsplit("/", 1)[1]
+    assert load_workbook(local_ledger).active.max_row == 4  # 저장 전에는 원래 대장 그대로
+
+    res = client.post(f"/save-local/{rid}", json={})
+    assert res.status_code == 200
+    assert [c.value for c in load_workbook(local_ledger).active["B"][3:5]] == ["0001112223", "0004445556"]
+    backup = local_ledger.with_name("대장_백업.xlsx")
+    assert load_workbook(backup).active.max_row == 4
+    assert client.post(f"/save-local/{rid}", json={}).status_code == 200  # 날짜 등을 더 고친 뒤 다시 저장 가능
+    assert load_workbook(backup).active.max_row == 4  # 백업은 처리 전 원본 그대로
+
+
+def test_local_save_refuses_when_ledger_changed(client, local_ledger):
+    import os
+
+    rid = _post_local(client, local_ledger).get_json()["download_url"].rsplit("/", 1)[1]
+    st = os.stat(local_ledger)
+    os.utime(local_ledger, (st.st_atime, st.st_mtime + 5))  # 처리 뒤 엑셀에서 저장한 상황
+    assert client.post(f"/save-local/{rid}", json={}).status_code == 409
+
+
+def test_local_mode_rejects_bad_path(client, local_ledger):
+    assert _post_local(client, local_ledger.with_name("없는파일.xlsx")).status_code == 400
+
+
+def test_learning_round_trip_through_endpoints(client, tmp_path):
+    from openpyxl import load_workbook
+
+    pdf = (io.BytesIO("요구서번호 : 0001112223\n1. 병가 현황\n1. 칼퇴 현황 일체".encode()), "a.pdf")
+    body = _post(client, [pdf]).get_json()
+    item = body["board"]["items"][0]
+    assert item["text"] == "칼퇴 현황 일체" and body["board"]["learned"]["stats"]["total"] == 0
+    rid = body["download_url"].rsplit("/", 1)[1]
+    entries = [{"doc": "0001112223", "key": item["key"], "text": item["text"], "model": item["dept"], "final": "인재개발실"}]
+    assert client.post(f"/log/{rid}", json={"entries": entries}).get_json() == {"written": 1}
+    assert client.post("/api/settings/rules", json={"keyword": "칼퇴", "dept": "인재개발실", "basis": "정정 1건"}).status_code == 200
+    assert client.post("/api/settings/rules", json={"keyword": "칼", "dept": "x"}).status_code == 400
+    assert client.post(f"/log/{rid}", json={"entries": "x"}).status_code == 400
+
+    # 다음 처리: 이력이 들어 있는 대장을 올리면 설정의 추가 규칙이 먼저 적용되고 정확도가 나온다
+    path = tmp_path / "대장.xlsx"
+    path.write_bytes(client.get(body["download_url"]).data)
+    assert "배분 이력" in load_workbook(path).sheetnames
+    pdf2 = (io.BytesIO("요구서번호 : 0004445556\n1. 직원 칼퇴 내역".encode()), "b.pdf")
+    res = client.post("/process", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx"), "docs": [pdf2]},
+                      content_type="multipart/form-data").get_json()["board"]
+    assert (res["items"][0]["dept"], res["items"][0]["why"]) == ("인재개발실", "‘칼퇴’ 추가 규칙")
+    assert res["learned"]["stats"] == {"total": 1, "kept": 0, "rate": 0}
+
+
+def test_status_from_uploaded_ledger_and_result(client, tmp_path):
+    from extractor import learning
+    from extractor.ledger import append_rows, create_ledger
+
+    wb = create_ledger()
+    append_rows(wb, [
+        {"doc_no": "0001", "request_date": "2026-09-01", "deadline": "2026.09.05", "member": "을지문덕",
+         "content": "[칼퇴 현황]\n1. 직원 칼퇴\n2. 유연근무"},
+        {"doc_no": "0002", "deadline": "2026.10.30", "content": "예산서"},
+    ])
+    wb.active.cell(row=5, column=9, value=datetime(2026, 10, 1))  # 0002는 제출 완료
+    learning.write_log(wb, [{"doc": "0001", "key": "1", "text": "직원 칼퇴", "model": "기획실", "final": "인재개발실"},
+                            {"doc": "0001", "key": "2", "text": "유연근무", "model": "인재개발실", "final": "인재개발실"}])
+    path = tmp_path / "대장.xlsx"
+    wb.save(path)
+    res = client.post("/status", data={"mode": "existing", "excel": (open(path, "rb"), "대장.xlsx")},
+                      content_type="multipart/form-data")
+    recs = res.get_json()["records"]
+    assert recs[0] == {"doc": "0001", "member": "을지문덕", "title": "칼퇴 현황", "request_date": "2026-09-01",
+                       "deadline": "2026-09-05", "submitted": "", "questions": 2, "depts": {"인재개발실": 2}}
+    assert (recs[1]["title"], recs[1]["submitted"]) == ("예산서", "2026-10-01")
+    bad = client.post("/status", data={"mode": "existing", "excel": (io.BytesIO(b"x"), "a.xlsx")},
+                      content_type="multipart/form-data")
+    assert bad.status_code == 400
+
+    body = _post(client, [(io.BytesIO("요구서번호 : 0001112223\n제출기한 : 2026.10.02\n1. 요구".encode()), "a.pdf")]).get_json()
+    rid = body["download_url"].rsplit("/", 1)[1]
+    assert client.get(f"/status/{rid}").get_json()["records"][0]["deadline"] == "2026-10-02"
+
+
+def test_settings_excluded_and_added_tasks_apply_to_next_run(client):
+    names = {"channel": {}, "tasks": {"감사부|청탁금지": "박청렴"}, "members": {},
+             "excluded": ["감사부|복무감사"], "custom": [{"dept": "감사부", "task": "청탁금지", "keywords": ["김영란법"]}]}
+    assert client.post("/api/settings", json=names).status_code == 200
+
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 병가\n1. 복무점검 실시 현황\n2. 김영란법 위반 현황".encode()), "b.pdf")
+    res = _post(client, [pdf]).get_json()["board"]  # 앱 재시작 없이 다음 처리부터 반영
+    got = [(i["dept"], i["task"]) for i in res["items"]]
+    assert got == [("인재개발실", "승진·징계·인사 발령·휴직"), ("감사부", "청탁금지")]
+    assert res["roster"]["excluded"] == ["감사부|복무감사"]
+
+
+def test_export_endpoint_returns_workbook(client):
+    from openpyxl import load_workbook
+
+    res = client.post("/export", json={"rows": [{"dept": "기획실", "worker": "홍길동", "doc": "0001", "key": "1",
+                                                 "text": "직제표", "due": "2026-10-02", "done": False}],
+                                       "channel": {}})
+    assert res.status_code == 200 and "attachment" in res.headers["Content-Disposition"]
+    assert load_workbook(io.BytesIO(res.data))["분장내역"]["A4"].value == "기획실"
+    assert client.post("/export", json={"rows": []}).status_code == 400
+    assert client.post("/export", json=[1]).status_code == 400
+
+
+
+def test_department_changes_apply_to_next_run(client):
+    from openpyxl import load_workbook
+
+    org = [{"name": "기획본부", "depts": ["기획실"]}, {"name": "행정본부", "depts": ["총무구매실", "자산팀"]}]
+    cfg = {"org": org, "merged": {"시설자산실": "자산팀"}, "channel": {"자산팀": "가상자산"}}
+    assert client.post("/api/settings", json=cfg).status_code == 200
+    pdf = (io.BytesIO("요구서번호 : 0004445556\n1. 자산\n1. 유형자산 대장\n2. 탄약 보관 현황".encode()), "b.pdf")
+    b = _post(client, [pdf]).get_json()["board"]
+    assert [(i["dept"], i["task"]) for i in b["items"]] == [("자산팀", "자산 관리"), ("기획실", "")]
+    assert [g["name"] for g in b["org"]] == ["기획본부", "행정본부"]
+    assert {"dept": "자산팀", "task": "자산 관리"} in b["tasks"]
+    assert not any(t["dept"] == "시설자산실" for t in b["tasks"])
+
+    # 분장내역 정렬도 설정한 부서 구성 순서를 따른다
+    rows = [{"dept": d, "worker": "", "doc": "1", "key": "1", "text": "x", "done": False} for d in ("자산팀", "기획실")]
+    wb = load_workbook(io.BytesIO(client.post("/export", json={"rows": rows, "channel": {}}).data))
+    assert [wb["분장내역"].cell(row=r, column=1).value for r in (4, 5)] == ["기획실", "자산팀"]

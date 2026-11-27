@@ -1,185 +1,47 @@
-# CLAUDE.md - AI Assistant Guidelines for Main-Project
+# CLAUDE.md - AI Assistant Guidelines
 
-> **Repository Status**: This is a newly initialized repository. This document will be updated as the project structure develops.
+## 프로젝트 개요
 
-## Project Overview
+**KISTI 국회 요구자료 관리 프로그램** — 의정자료전자유통시스템 요구서 PDF를 올리면
+텍스트를 추출(스캔본은 OCR 폴백)하고 항목을 파싱해 엑셀 관리대장에 누적하는 Flask 앱.
+PC 전용(127.0.0.1)으로 실행하며 서버 배포는 하지 않는다.
 
-**Repository**: Main-Project
-**Status**: Empty/Initial Setup
-**Last Updated**: 2026-02-03
+## 구조
 
-This document provides guidelines for AI assistants working with this codebase.
+| 경로 | 역할 |
+|------|------|
+| `app.py` | Flask 앱 (라우팅, 업로드 처리) |
+| `extractor/pdf_text.py` | PDF 텍스트 추출 (pdfplumber → tesseract OCR 폴백) |
+| `extractor/hwp_text.py` | 첨부 한글파일 텍스트 추출 (HWP 5.0 OLE / HWPX ZIP+XML) |
+| `extractor/parser.py` | 요구서 항목 파싱, 첨부 한글파일 항목 분리 (정규식) |
+| `extractor/ledger.py` | 엑셀 관리대장 생성·누적 — 기관 관리대장 양식(제목 1행·머리글 3행), 기존 대장 이어쓰기·중복 건너뜀 (openpyxl) |
+| `extractor/assign.py` | 질의별 담당 부서 배분 — 카테고리 규칙(RULES) → 세부 배분표(TABLE), 담당자 이름은 넣지 않음 |
+| `extractor/settings.py` | 앱 설정 저장소 — `data/settings.json`(부서원·분장표·업무 추가/제외·부서 구성·추가 규칙) |
+| `extractor/roster.py` | 부서원·분장 명단 구조 — 배분표 업무 목록(tasks), 부서 구성(org)·통합(merged → resolver), 정리(clean) |
+| `extractor/history.py` | 이전 질의 찾기 — 대장 기록을 질의 단위로 색인, 동일·기간만 다름·유사(TF-IDF) |
+| `extractor/learning.py` | 배분 정정 학습 — 대장의 '배분 이력' 시트, 정확도·규칙 제안, 추가 규칙·이전 정정 반영 |
+| `extractor/status.py` | 마감 현황 데이터 (`static/dashboard.js`가 D-day를 사용자 PC 날짜로 계산) |
+| `extractor/export.py` | 업무 분장내역 엑셀 — 화면의 최종 배분을 분장내역·부서별 요약·해당없음 시트로 |
+| `extractor/board.py` | 처리 결과 → 분배안 화면 데이터 (`static/board.js`가 그림) |
+| `extractor/data/assembly_members.csv` | 제22대 국회의원 명단 (소속 정당 보완, 파일명 의원명 인식) |
+| `templates/`, `static/` | 업로드·결과 화면(`index.html`, `board.js`), 설정 화면(`settings.html`, `settings.js`) |
+| `start.bat`, `start.sh`, `바로가기.html` | 로컬 PC 실행 지원 |
 
----
-
-## Repository Structure
-
-```
-Main-Project/
-├── .git/                 # Git version control
-└── CLAUDE.md            # This file - AI assistant guidelines
-```
-
-*Structure will be updated as the project develops.*
-
----
-
-## Technology Stack
-
-*To be determined based on project requirements.*
-
----
-
-## Development Workflow
-
-### Branch Naming Convention
-
-- Feature branches: `feature/<description>`
-- Bug fixes: `fix/<description>`
-- AI-assisted work: `claude/<session-id>`
-
-### Commit Message Format
-
-Follow conventional commits:
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
-```
-
-**Types**:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation only
-- `style`: Code style (formatting, no logic change)
-- `refactor`: Code refactoring
-- `test`: Adding/updating tests
-- `chore`: Maintenance tasks
-
-### Pull Request Guidelines
-
-1. Create descriptive PR titles
-2. Include a summary of changes
-3. Reference related issues
-4. Ensure all tests pass before requesting review
-
----
-
-## Code Conventions
-
-### General Principles
-
-1. **Simplicity**: Prefer simple, readable code over clever solutions
-2. **Consistency**: Follow existing patterns in the codebase
-3. **Documentation**: Add comments only where logic isn't self-evident
-4. **Testing**: Write tests for new functionality
-5. **Security**: Never commit secrets, credentials, or sensitive data
-
-### File Organization
-
-- Keep related files together
-- Use clear, descriptive file names
-- Separate concerns appropriately
-
----
-
-## Commands Reference
-
-### Git Operations
+## 명령어
 
 ```bash
-# Check status
-git status
-
-# Create and switch to a new branch
-git checkout -b <branch-name>
-
-# Commit changes
-git add <files>
-git commit -m "<message>"
-
-# Push to remote
-git push -u origin <branch-name>
+pip install -r requirements.txt   # 의존성 설치
+python -m pytest tests/ -q        # 테스트
+python app.py                     # 로컬 실행 (http://127.0.0.1:5000)
 ```
 
-### Build & Test Commands
+## 작업 규칙
 
-*To be added when build system is configured.*
-
----
-
-## Important Files
-
-| File | Purpose |
-|------|---------|
-| `CLAUDE.md` | AI assistant guidelines (this file) |
-
-*Additional important files will be documented as the project develops.*
-
----
-
-## API & External Services
-
-*To be documented when integrations are added.*
-
----
-
-## Known Issues & Limitations
-
-*None currently documented.*
-
----
-
-## AI Assistant Instructions
-
-### When Working on This Repository
-
-1. **Always read before editing**: Understand existing code before making changes
-2. **Minimize changes**: Only modify what's necessary for the task
-3. **Follow existing patterns**: Match the code style of the surrounding code
-4. **Test your changes**: Run tests before committing
-5. **Write clear commits**: Use descriptive commit messages
-6. **Don't over-engineer**: Keep solutions simple and focused
-
-### Things to Avoid
-
-- Adding features not explicitly requested
-- Creating unnecessary abstractions
-- Committing debug code or console logs
-- Making changes outside the scope of the task
-- Guessing at missing requirements (ask instead)
-
-### Security Considerations
-
-- Never commit `.env` files or credentials
-- Validate user input at system boundaries
-- Be aware of OWASP Top 10 vulnerabilities
-- Review changes for potential security issues
-
----
-
-## Getting Started
-
-### Prerequisites
-
-*To be added based on technology stack.*
-
-### Setup Instructions
-
-*To be added once project is initialized.*
-
-### Running the Project
-
-*To be added once project is initialized.*
-
----
-
-## Contact & Resources
-
-*To be added.*
-
----
-
-*This CLAUDE.md file should be updated whenever significant changes are made to the project structure, conventions, or workflows.*
+- 커밋: conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
+- 브랜치: `feature/…`, `fix/…`, AI 작업은 `claude/<session-id>`
+- 관리대장 열 구조는 `ledger.py`의 `COLUMNS`가 단일 출처 — 헤더·미리보기·검증이 모두 여기서 파생됨
+- 조직개편(부서 이름 변경·통폐합)은 `assign.TABLE`을 고치지 않고 설정의 `merged`로 처리 — 배분 결과에는 `roster.resolver`를 거친 부서가 나감
+- `start.bat`은 CP949 인코딩 유지 (한글 Windows 콘솔용)
+- 직원 이름·연락처는 코드·테스트·커밋에 넣지 않는다 — 담당자 명단은 `data/settings.json`(gitignore)에만 둔다, 테스트는 가상 이름 사용
+- 기존 코드를 읽고 스타일을 맞출 것, 요청 범위 밖 변경 금지, 시크릿 커밋 금지
+- 변경 후 테스트 실행 필수

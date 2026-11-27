@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>국회 요구자료 목록화 시스템 - 바로가기</title>
+  <style>
+    body {
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      background: #f6f5fb; color: #1c1b2e;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; text-align: center;
+    }
+    .box {
+      background: #fff; border: 1px solid #e6e4f2; border-radius: 18px;
+      padding: 40px 48px; box-shadow: 0 6px 24px rgba(28,27,46,0.06); max-width: 480px;
+    }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { font-size: 14.5px; color: #5a5870; line-height: 1.7; margin: 8px 0; }
+    .status { font-weight: bold; color: #6d5ce7; }
+    code {
+      background: #ede9ff; color: #5a48d6; padding: 2px 8px;
+      border-radius: 6px; font-size: 13px;
+    }
+    a.btn {
+      display: inline-block; margin-top: 16px; padding: 12px 28px;
+      background: #6d5ce7; color: #fff; border-radius: 10px;
+      text-decoration: none; font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>국회 요구자료 목록화 시스템</h1>
+    <p class="status" id="status">서버 연결을 확인하는 중입니다…</p>
+    <div id="guide" style="display:none">
+      <p>아직 서버가 실행되지 않았습니다.<br>
+         프로그램 폴더의 <code>start.bat</code>을 먼저 더블클릭해서 실행한 뒤,<br>
+         이 페이지를 새로고침하거나 아래 버튼을 눌러 주세요.</p>
+      <a class="btn" href="http://127.0.0.1:5000">시스템 열기</a>
+    </div>
+  </div>
+  <script>
+    const URL_ = "http://127.0.0.1:5000/";
+    function tryConnect(retry) {
+      fetch(URL_, { mode: "no-cors", cache: "no-store" })
+        .then(() => { location.href = URL_; })
+        .catch(() => {
+          if (retry > 0) {
+            setTimeout(() => tryConnect(retry - 1), 1500);
+          } else {
+            document.getElementById("status").style.display = "none";
+            document.getElementById("guide").style.display = "block";
+          }
+        });
+    }
+    tryConnect(3);
+  </script>
+</body>
+</html>
